@@ -34,8 +34,8 @@ Plain JSON, versioned, stored in IndexedDB (ADR 0007). Contains nothing device-s
 | `name` | string | Original file name, shown to the user. |
 | `address` | `{ kind: "local-file" }` | Discriminated union; `{ kind: "cloud-object", url }` arrives later (ADR 0005). The handle itself is **not** here. |
 | `fingerprint` | `{ size, lastModified }` | Used to confirm a Relink points at the same file. |
-| `duration` | `{ numerator, denominator }` | Source-native duration as an exact ratio of seconds, in the Source's own timescale — never the Project's Frames and never a float. |
-| `frameRate` | `{ numerator, denominator }` | Source-native. May differ from the Project's Timebase. |
+| `duration` | `{ numerator, denominator }` | Source-native duration as an exact ratio of seconds, in the Source's own timescale — never the Project's Frames and never a float. This is Principle II's one exception (constitution 1.1.0, ADR 0002): a Source's media time is not the Project's to renumber. |
+| `timebase` | `{ numerator, denominator }` | The Source Timebase — its own rate as an exact ratio. May differ from the Project's Timebase. Not named `frameRate`: `CONTEXT.md` lists "frame rate" under `_Avoid_`. |
 | `dimensions` | `{ width, height }` | |
 | `hasAudio` | boolean | A Source without audio is valid (spec, US2 scenario 5). |
 | `codecs` | `{ video?, audio? }` | Recorded at import for diagnostics and for reporting why a Source cannot be used. |
@@ -69,7 +69,7 @@ Plain JSON, versioned, stored in IndexedDB (ADR 0007). Contains nothing device-s
 | `sourceId` | string | Survives the Source going Offline (FR-022). |
 | `startFrame` | integer | Position on the Timeline, in the Project's Timebase. |
 | `durationFrames` | integer | `> 0`. |
-| `sourceInPoint` | `{ numerator, denominator }` | Where in the Source the Clip begins, in the **Source's** timescale. Zero for this slice (no trimming). |
+| `sourceInPoint` | `{ numerator, denominator }` | Where in the Source the Clip begins, in the **Source's** timescale — an address inside the Source, not a position on the Timeline, and so the second half of Principle II's exception. Zero for this slice (no trimming). |
 
 **Rules**
 
@@ -110,12 +110,14 @@ persisted.
 |---|---|---|
 | `timebase` | `{ numerator, denominator }` | |
 | `frameSize` | `{ width, height }` | |
-| `items` | `SceneItem[]` | Back to front. |
+| `clips` | `SceneClip[]` | Back to front. |
 
-`SceneItem` = `{ clipId, sourceId, startFrame, durationFrames, sourceInPoint, transform }`.
+`SceneClip` = `{ clipId, sourceId, startFrame, durationFrames, sourceInPoint, transform }`.
 
-Named `SceneItem`, not `SceneLayer`: `CONTEXT.md` reserves "Layer" as a word to avoid, because in
-editors it is the commonest wrong name for a Track.
+Named `SceneClip`, because that is what each one is — a Clip as the renderer needs to see it.
+Not `SceneLayer`, and not `SceneItem` either: `CONTEXT.md` lists "Layer" under the words to avoid
+for a Track, and "Item" under the words to avoid for a Clip. Both are the commonest wrong names in
+editors, which is exactly why they are listed.
 
 **Rules**
 

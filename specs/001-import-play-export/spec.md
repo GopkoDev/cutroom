@@ -13,7 +13,7 @@
 ### User Story 1 - Bring a video in and see it (Priority: P1)
 
 An editor opens the product, picks a video file from their own machine, and immediately sees it:
-the file appears as a Source in the media list, a Clip covering the whole file appears on the
+the file appears as a Source in the Source list, a Clip covering the whole file appears on the
 Timeline, and the Preview shows the picture at the Playhead. Moving the Playhead along the
 Timeline shows the corresponding Frame.
 
@@ -28,7 +28,7 @@ value on its own: the product can already be used to inspect footage Frame by Fr
 **Acceptance Scenarios**:
 
 1. **Given** an empty Project, **When** the user picks a video file, **Then** a Source appears in
-   the media list with its name and duration, and a Clip covering the whole Source appears on the
+   the Source list with its name and duration, and a Clip covering the whole Source appears on the
    Timeline starting at Frame 0.
 2. **Given** a Clip on the Timeline, **When** the user moves the Playhead to any Frame within it,
    **Then** the Preview shows the picture of that Frame.
@@ -103,21 +103,21 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
 
 ### Edge Cases
 
-- The Source's frame rate differs from the Project's Timebase (a 24 fps file in a 30 fps
-  Project): every Frame of the Timeline must still show the correct picture, and playback must
-  not drift.
+- The Source Timebase differs from the Project's Timebase (a 24 fps file in a 30 fps Project):
+  every Frame of the Timeline must still show the correct picture, and playback must not drift.
 - The chosen file is audio-only, or is an image: out of scope for this slice, and must be
   refused clearly rather than half-supported.
 - The Source file is moved or deleted while the Project is open: the Clip stays on the Timeline
-  and the Preview reports the Source as unavailable instead of showing stale pictures.
+  and the Preview reports the Source as unavailable instead of showing stale pictures — from the
+  next Frame it is asked to draw, not only after a reload.
 - The user reloads the page mid-edit: the Project is still listed, and the Source either
   reattaches after the user re-grants access or is reported as Offline.
 - A very long Source (over an hour) is imported: importing must not require reading the whole
   file, and the Timeline must appear promptly.
 - The user starts an export and keeps editing: the export must reflect the Timeline as it was
   when the export started.
-- The export destination runs out of space or becomes unwritable partway: the failure is
-  reported and no file is presented as complete.
+- The export destination runs out of space or becomes unwritable partway: the failure is reported
+  plainly, and FR-018's no-partial-file rule applies to this ending like any other.
 - The browser cannot run the product at all: the user is told so on arrival rather than meeting a
   broken editor.
 
@@ -125,12 +125,16 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
 
 ### Functional Requirements
 
+Identifiers are stable: they are never renumbered or reused, because plan.md, tasks.md and
+quickstart.md all cite them. FR-024 was added after the first numbering, so it sits with the
+Exporting requirements it belongs to rather than in numeric order at the end.
+
 **Importing**
 
 - **FR-001**: Users MUST be able to choose a video file from their own machine and add it to the
   Project as a Source.
-- **FR-002**: The product MUST read the Source's duration, picture size and frame rate on import
-  and show the duration to the user.
+- **FR-002**: The product MUST read the Source's duration, picture size and Source Timebase on
+  import, and MUST show its name and duration in the Source list.
 - **FR-003**: The product MUST reject a file it cannot decode, stating that it cannot be used,
   and MUST leave the Project unchanged when it does.
 - **FR-004**: Importing MUST NOT copy the Source's contents into the product's own storage.
@@ -167,8 +171,10 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
   sound, matching what the Preview showed.
 - **FR-017**: The product MUST offer only export settings the current machine can actually
   produce, determined at the time of asking rather than assumed.
-- **FR-018**: The product MUST report export progress and MUST let the user cancel, leaving no
-  partial file presented as finished.
+- **FR-018**: The product MUST report export progress and MUST let the user cancel. However an
+  export ends short — cancelled, failed, or interrupted by a destination that has become
+  unwritable — the product MUST NOT present a partial file as finished. This is one rule, and it
+  covers every way an export can stop early.
 - **FR-019**: Export MUST reflect the state of the Timeline at the moment it started, unaffected
   by edits made while it runs.
 - **FR-024**: When the machine cannot encode sound at all, the product MUST say so before the
@@ -194,7 +200,8 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
 - **Project**: the unit of work: a frame size, a Timebase, its Sources and one Timeline. Listed
   and reopened by the user; persists between sessions.
 - **Source**: media brought into the Project, addressed where it already lives. Carries name,
-  duration, picture size and frame rate. May be Offline when its file cannot be reached.
+  duration, picture size and its own Source Timebase, which may differ from the Project's. May be
+  Offline when its file cannot be reached.
 - **Timeline**: the arrangement of Clips over time that defines what the Project looks and sounds
   like at any Frame.
 - **Track**: one lane of the Timeline holding non-overlapping Clips. This slice needs one video
@@ -209,17 +216,20 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
 ### Measurable Outcomes
 
 - **SC-001**: A user can go from opening the product to a Clip visible on the Timeline in under
-  15 seconds, including choosing the file.
+  15 seconds. Measured from the page finishing load to the Preview showing Frame 0, with the time
+  the user spends navigating their own file picker excluded — that is their disk, not our
+  product. Everything else counts: worker start-up, reading the file, and the first Render.
 - **SC-002**: Picture and sound stay in sync within one Frame over 10 minutes of continuous
   playback of a 1080p file.
 - **SC-003**: Moving the Playhead to a new Frame shows that Frame within 300 ms for 1080p
   material, so scrubbing feels attached to the pointer.
-- **SC-004**: A 1080p 30 fps Source of up to 10 minutes plays back at full rate on a current
-  the reference machine named in quickstart.md, with no audio interruption.
+- **SC-004**: A 1080p 30 fps Source of up to 10 minutes plays back at full rate on the reference
+  machine named in quickstart.md, with no audio interruption.
 - **SC-005**: Exporting one minute of 1080p 30 fps material completes in under two minutes on
   that same machine.
-- **SC-006**: An exported file opens and plays correctly in at least three common players
-  (system player, VLC, a browser), with the same duration as the Timeline.
+- **SC-006**: An exported file opens and plays correctly in three named players — the operating
+  system's own player (QuickTime on the reference machine), VLC, and Chrome — with the same
+  duration as the Timeline. All three are checked; two passing is a failure.
 - **SC-007**: Every Frame of an exported file matches the Preview of that Frame, verified by
   comparing sampled Frames.
 - **SC-008**: A Project reopened after a browser restart shows the same Timeline, and its Sources
@@ -233,12 +243,16 @@ ordinary video player, and confirm the duration, picture and sound match the Pre
   end to end, not yet to edit with.
 - **Video files only.** Audio-only files, images, text, effects and transitions are out of scope
   and are refused rather than partially handled.
-- **The Project adopts the first Source's frame rate and picture size** as its Timebase and
-  canvas, so the user is not asked to configure a Project before seeing anything. Sources whose
-  frame rate differs from an established Timebase must still display correctly.
+- **The Project adopts the first Source's Timebase and picture size** as its own Timebase and
+  frame size, so the user is not asked to configure a Project before seeing anything. A Source
+  whose Timebase differs from an established Project Timebase must still display correctly.
 - **Export produces MP4 with H.264 video and AAC audio** when the machine supports it, at the
-  Project's frame size and Timebase, with a sensible default quality. Other formats, presets and
-  per-setting control are out of scope for this slice.
+  Project's frame size and Timebase. Three quality choices are offered and no more, scaled to the
+  Project's frame size — at 1080p they are High (16 Mbps), Standard (8 Mbps) and Draft (4 Mbps),
+  each scaled by pixel count for other sizes — alongside one audio setting, 192 kbps stereo at the
+  Source's sample rate. Standard is preselected. A choice is offered only if the machine reports it
+  can actually produce it (FR-017). Other formats, resolutions, frame rates and per-setting control
+  are out of scope for this slice.
 - **One Project at a time is open**, and no more than one export runs at a time.
 - **Undo is not exercised** by this slice beyond what importing requires; it is proven by the
   editing features that follow.

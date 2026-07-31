@@ -1,12 +1,18 @@
 <!--
 Sync Impact Report
-Version change: none → 1.0.0 (initial ratification; template placeholders replaced)
-Modified principles: none (all six principles are new)
+Version change: 1.0.0 → 1.1.0 (Principle II gains one bounded, named exception)
+  (previous: none → 1.0.0, initial ratification; template placeholders replaced)
+Modified principles:
+  - II. Frames Are the Unit of Time — the ban on seconds now scopes to editing logic and to
+    Timeline positions. Time expressed in a Source's own timescale (how long the Source is, and
+    where in it a Clip begins) is named as the one exception, because a Source's media time is
+    not the Project's to renumber. Rationale and consequences: docs/adr/0002, and
+    specs/001-import-play-export/data-model.md where the fields live.
 Added sections:
-  - Core Principles: I–VI
-  - Platform Constraints
-  - Development Workflow
-  - Governance
+  - Core Principles: I–VI (1.0.0)
+  - Platform Constraints (1.0.0)
+  - Development Workflow (1.0.0)
+  - Governance (1.0.0)
 Removed sections: none
 Templates requiring review: .specify/templates/plan-template.md,
   .specify/templates/spec-template.md, .specify/templates/tasks-template.md
@@ -36,9 +42,16 @@ Capabilities that vary between browsers (codecs, encoders) MUST be discovered at
 
 Positions and durations on the Timeline MUST be integer Frame indices in the Project's Timebase,
 which is stored as an exact ratio. Seconds, microseconds and sample indices MUST NOT appear in
-the Project document or in editing logic; they exist only inside the single conversion module
-that talks to decoders, Web Audio and the muxer. Any code that rounds a time value outside that
-module is a defect.
+editing logic; they exist only inside the single conversion module that talks to decoders, Web
+Audio and the muxer. Any code that rounds a time value outside that module is a defect.
+
+One exception exists, and only one: time expressed in a **Source's own** timescale — how long the
+Source is, and where in it a Clip begins. A Source is addressed where it already lives
+(Principle V) and its media time is not the Project's to renumber, so these values MUST be stored
+as exact rationals of seconds, never as floats and never as Frames of the Project's Timebase. They
+are addresses, not Timeline positions: no editing operation may compute with them, and turning one
+into a Frame is the conversion module's work like any other boundary crossing (ADR 0002). Anything
+that describes a position *on the Timeline* has no such licence.
 
 ### III. One Engine for Preview and Export
 
@@ -113,4 +126,4 @@ way, MINOR for adding a principle or materially expanding guidance, PATCH for cl
 wording. Compliance is verified at review time; complexity that contradicts a principle must be
 justified in writing or removed.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-07-31
+**Version**: 1.1.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-07-31

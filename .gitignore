@@ -7,5 +7,8 @@ dist/
 test-results/
 playwright-report/
 
-# Generated media fixtures — regenerate with `pnpm fixtures`
-packages/engine/test/fixtures/*.mp4
+# Generated fixtures — regenerate with `pnpm fixtures`. Video, audio and stills alike:
+# make-fixtures.ts is deterministic, and the ten-minute and seventy-minute files have no
+# business in git history.
+packages/engine/test/fixtures/*
+!packages/engine/test/fixtures/.gitkeep

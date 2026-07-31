@@ -12,7 +12,8 @@ The single place where Frames become anything else (Principle II, R7).
 frameToSeconds(timebase, frame): number
 secondsToFrame(timebase, seconds): integer      // documented rounding, one definition
 frameToSampleIndex(timebase, sampleRate, frame): integer
-framesForDuration(timebase, seconds): integer
+framesForDuration(timebase, duration): integer  // duration is an exact ratio, not a float
+frameToSourceTime(timebase, sourceInPoint, frame): { numerator, denominator }
 ```
 
 **Contract**
@@ -21,6 +22,11 @@ framesForDuration(timebase, seconds): integer
   tested at boundaries (exactly on a Frame, half a Frame either side, negative input rejected).
 - `frameToSampleIndex` is computed from the absolute Frame, never accumulated, so error cannot
   build up over a long Timeline (≤ half a sample at 29.97).
+- `frameToSourceTime` turns a Project Frame into a time inside a Source, staying rational the whole
+  way, so a Source whose Timebase differs from the Project's is handled here and nowhere else.
+  `packages/engine` calls it rather than doing the arithmetic itself — R7 forbids frame-rate
+  arithmetic outside this module, and a mismatched-Timebase Source is exactly where that rule earns
+  its keep.
 - All functions are total: invalid input throws rather than returning a plausible number.
 
 ## Document
@@ -42,7 +48,8 @@ CURRENT_SCHEMA_VERSION: integer
 ## Reducer
 
 ```
-type Command = { type: "import-source", ... } | { type: "set-playhead", ... } | ...
+type Command = { type: "create-project", ... } | { type: "import-source", ... }
+             | { type: "add-clip", ... }      | { type: "relink-source", ... }
 applyCommand(project, command): { project, patches, inversePatches }
 ```
 
@@ -66,7 +73,7 @@ projectScene(project): Scene
 **Contract**
 
 - Pure and total. Contains only what affects the picture (see data-model).
-- Deterministic ordering: Scene items back to front, stable across calls, so two identical Projects
+- Deterministic ordering: `SceneClip`s back to front, stable across calls, so two identical Projects
   produce byte-identical Scenes.
 - Referentially transparent enough to memoise: an edit that does not change the picture must not
   produce a different Scene.

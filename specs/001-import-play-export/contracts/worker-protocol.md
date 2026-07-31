@@ -95,7 +95,7 @@ The worker aborts encoding, closes the writable stream without finalizing, and r
 | Message | Payload | Meaning |
 |---|---|---|
 | `ready` | `{ capabilities }` | Init succeeded; carries the results of the `canEncode` probes. |
-| `source-attached` | `{ sourceId, duration, frameRate, dimensions, hasAudio, codecs }` | Metadata read from the file. |
+| `source-attached` | `{ sourceId, duration, timebase, dimensions, hasAudio, codecs }` | Metadata read from the file. `duration` and `timebase` are exact rationals in the Source's own timescale — the Principle II exception, and the only seconds that cross this boundary. |
 | `source-failed` | `{ sourceId, reason }` | Undecodable or unreadable; the main thread reports it and leaves the Project unchanged (FR-003). |
 | `frame-rendered` | `{ frame, revision }` | The canvas now shows this Frame of this scene revision. |
 | `frames-dropped` | `{ count }` | Diagnostic only; never surfaced as an error. |
@@ -111,8 +111,10 @@ The worker aborts encoding, closes the writable stream without finalizing, and r
 
 1. The worker never mutates a Project and never sends one back. Its only outputs are pixels,
    decoded PCM, and status.
-2. Every `Frame` in this protocol is an integer in the Project's Timebase. Seconds never cross the
-   boundary.
+2. Every `Frame` in this protocol is an integer in the Project's Timebase. The only seconds that
+   cross the boundary are Source-native ones — a Source's `duration` and `timebase`, and a Clip's
+   `sourceInPoint` inside a `Scene` — which are exact rationals, never floats, and describe a
+   position inside a Source rather than on the Timeline (Principle II's exception, ADR 0002).
 3. A `render-frame` request may be answered late or not at all; the main thread must not block on
    it. Sound never waits for a Frame (FR-011, FR-012).
 4. Backpressure is explicit: export audio chunks are acknowledged, so the main thread cannot

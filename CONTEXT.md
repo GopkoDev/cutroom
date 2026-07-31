@@ -40,6 +40,14 @@ _Avoid_: Tick, Time, Timestamp
 The Project's frame rate, held as an exact ratio (e.g. 30000/1001) so Frame indices convert to real time without drift.
 _Avoid_: FPS, Frame rate
 
+**Source Timebase**:
+A Source's own rate, held as an exact ratio, which may differ from the Project's Timebase. It addresses time *inside* that Source and nothing else: no position on the Timeline is ever expressed in it, and a Source keeps it unchanged however the Project is set up.
+_Avoid_: Source FPS, native frame rate, source frameRate
+
+**Scene**:
+What the Timeline looks like at render time, projected from the Project and sent to the engine: the Timebase, the frame size, and the Clips visible on it. Derived, never edited, never stored.
+_Avoid_: Render tree, Display list, Frame graph
+
 **Effect**:
 Something applied to a Clip that changes how it looks or sounds, exposing a fixed set of named parameters.
 _Avoid_: Filter, Adjustment, Modifier
