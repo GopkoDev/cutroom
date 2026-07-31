@@ -40,7 +40,7 @@ Two things follow from this machine in particular, and both matter when reading 
 - H.264 encode and decode are hardware-accelerated on Apple silicon, so SC-005 is measured on a
   favourable path. An export that misses two minutes here is a real problem, not a slow laptop.
 - Unified memory means the compositor and the decoders draw on the same 16 GB. A long-export
-  memory leak (T085) will show up as system-wide pressure rather than a tidy tab crash.
+  memory leak (T090) will show up as system-wide pressure rather than a tidy tab crash.
 
 ## Run
 

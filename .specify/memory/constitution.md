@@ -100,8 +100,8 @@ Adding an Effect MUST NOT add a branch to the renderer, the Inspector or a migra
 - **Documents**: the Project document is versioned JSON. A migration MUST accompany every change
   to its shape, from the first release onward, because users' Projects live in their browser
   storage and cannot be discarded.
-- **Prototype**: `lovable_test_ui/` is a visual reference. It MUST NOT import from the app, and
-  the app MUST NOT import from it.
+- **Prototype**: the Lovable UI prototype is a visual reference kept outside this repository.
+  Nothing here may import from it, and it is not vendored back in (ADR 0010).
 
 ## Development Workflow
 

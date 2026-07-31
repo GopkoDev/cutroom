@@ -128,8 +128,9 @@ scripts/
 docs/
 └── adr/                        # At the repository root: the ADRs govern the whole monorepo
 CONTEXT.md                      # Likewise — the domain language is not the editor app's alone
-lovable_test_ui/                # Visual reference only; no imports either way (ADR 0010)
 ```
+
+The Lovable UI prototype is deliberately absent from this tree: it lives outside the repository, so reaching it would mean climbing out of the source root (ADR 0010).
 
 **Structure Decision**: pnpm workspace as mandated by the constitution. The split is by
 dependency direction, not by feature: `model` knows nothing about the browser, `engine` knows

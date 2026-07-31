@@ -13,10 +13,11 @@
     "preview": "pnpm --filter @cutroom/editor preview",
     "test": "pnpm --filter @cutroom/model test",
     "test:e2e": "pnpm --filter @cutroom/editor test:e2e",
-    "lint": "pnpm -r lint",
+    "lint": "pnpm check:docs && pnpm -r lint",
     "typecheck": "tsc -b",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
-    "fixtures": "node --experimental-strip-types scripts/make-fixtures.ts"
+    "fixtures": "node --experimental-strip-types scripts/make-fixtures.ts",
+    "check:docs": "node scripts/check-docs.mjs"
   },
   "devDependencies": {
     "prettier": "^3.8.3",
