@@ -12,3 +12,6 @@ playwright-report/
 # business in git history.
 packages/engine/test/fixtures/*
 !packages/engine/test/fixtures/.gitkeep
+
+# Local-only development plan view — regenerate rather than track
+plan.html
