@@ -1,0 +1,22 @@
+{
+  "name": "@cutroom/engine",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./worker": "./src/worker.ts",
+    "./protocol": "./src/protocol.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "mediabunny": "^1.25.3",
+    "pixi.js": "^8"
+  },
+  "devDependencies": {
+    "@cutroom/model": "workspace:*"
+  }
+}

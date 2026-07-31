@@ -1,0 +1,25 @@
+{
+  "name": "cutroom",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.27.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @cutroom/editor dev",
+    "build": "pnpm -r build",
+    "preview": "pnpm --filter @cutroom/editor preview",
+    "test": "pnpm --filter @cutroom/model test",
+    "test:e2e": "pnpm --filter @cutroom/editor test:e2e",
+    "lint": "pnpm -r lint",
+    "typecheck": "tsc -b",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "fixtures": "node --experimental-strip-types scripts/make-fixtures.ts"
+  },
+  "devDependencies": {
+    "prettier": "^3.8.3",
+    "typescript": "~6"
+  }
+}

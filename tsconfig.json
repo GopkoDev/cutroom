@@ -1,0 +1,8 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/model" },
+    { "path": "./packages/engine" },
+    { "path": "./apps/editor" }
+  ]
+}

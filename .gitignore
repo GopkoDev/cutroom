@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Playwright
+test-results/
+playwright-report/
+
+# Generated media fixtures — regenerate with `pnpm fixtures`
+packages/engine/test/fixtures/*.mp4
