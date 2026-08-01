@@ -13,13 +13,27 @@ frameToSeconds(timebase, frame): number
 secondsToFrame(timebase, seconds): integer      // documented rounding, one definition
 frameToSampleIndex(timebase, sampleRate, frame): integer
 framesForDuration(timebase, duration): integer  // duration is an exact ratio, not a float
+                                                // counts Frames whose start is inside the media
 frameToSourceTime(timebase, sourceInPoint, frame): { numerator, denominator }
 ```
 
 **Contract**
 
-- `secondsToFrame` is the only rounding of time in the codebase. Its rule is documented and
-  tested at boundaries (exactly on a Frame, half a Frame either side, negative input rejected).
+- Three functions have to collapse an exact ratio to an integer, and all three use one stated
+  rule so they cannot disagree:
+  - `secondsToFrame` — **nearest Frame, an exact half rounding up**. Frame n owns [n − ½, n + ½),
+    so every instant belongs to exactly one Frame. This is the rule meant by "time is snapped onto
+    the Frame grid in one place"; it is tested at the boundaries, and negative input is rejected.
+  - `frameToSampleIndex` — same tie rule. A rounding here is unavoidable, not a lapse: at 48 kHz a
+    29.97 Frame boundary falls at 1601.6 samples and the two grids never realign.
+  - `framesForDuration` — **rounds up**, because a count of n means indices 0 … n − 1 and index n
+    is the exclusive end. A 10.000 s Source at 30000/1001 is 300 Frames: index 299 starts at
+    9.9766 s, inside the media, and only index 300 — never displayed — lies past it. Truncating
+    here silently discards the last real Frame of every Source, which is the mistake this line
+    exists to prevent.
+- Where a container states how many Frames a Source actually holds, that fact beats this
+  inference; `framesForDuration` is for audio, and for expressing a Source's length in a Timebase
+  it was not authored in.
 - `frameToSampleIndex` is computed from the absolute Frame, never accumulated, so error cannot
   build up over a long Timeline (≤ half a sample at 29.97).
 - `frameToSourceTime` turns a Project Frame into a time inside a Source, staying rational the whole
