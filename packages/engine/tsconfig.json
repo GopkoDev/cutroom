@@ -4,14 +4,7 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "lib": [
-      "ES2023",
-      "DOM",
-      "WebWorker"
-    ]
+    "lib": ["ES2023", "DOM", "WebWorker"]
   },
-  "include": [
-    "src/**/*",
-    "test/**/*"
-  ]
+  "include": ["src/**/*", "test/**/*"]
 }

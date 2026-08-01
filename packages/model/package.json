@@ -9,7 +9,6 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "eslint .",
     "typecheck": "tsc -b"
   },
   "devDependencies": {

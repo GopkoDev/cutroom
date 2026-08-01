@@ -9,7 +9,6 @@
     "./protocol": "./src/protocol.ts"
   },
   "scripts": {
-    "lint": "eslint .",
     "typecheck": "tsc -b"
   },
   "dependencies": {

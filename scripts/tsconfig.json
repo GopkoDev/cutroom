@@ -1,0 +1,15 @@
+{
+  // Lives here, not at the repository root, so an editor finds it: the nearest tsconfig above a
+  // file is the one it uses, and the root config lists only project references. Scripts emit
+  // nothing and belong to no package, so they stay out of those references and are typechecked
+  // separately by `pnpm typecheck`.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true
+  },
+  "include": ["**/*.ts"]
+}

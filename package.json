@@ -13,14 +13,23 @@
     "preview": "pnpm --filter @cutroom/editor preview",
     "test": "pnpm --filter @cutroom/model test",
     "test:e2e": "pnpm --filter @cutroom/editor test:e2e",
-    "lint": "pnpm check:docs && pnpm -r lint",
-    "typecheck": "tsc -b",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "lint": "pnpm check:docs && eslint . && prettier --check .",
+    "typecheck": "tsc -b && tsc -p scripts",
+    "format": "prettier --write .",
     "fixtures": "node --experimental-strip-types scripts/make-fixtures.ts",
     "check:docs": "node scripts/check-docs.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.3",
+    "eslint": "^10.8.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.8.0",
     "prettier": "^3.8.3",
-    "typescript": "~6"
+    "prettier-plugin-tailwindcss": "^0.8.1",
+    "typescript": "~6",
+    "typescript-eslint": "^8.65.0"
   }
 }

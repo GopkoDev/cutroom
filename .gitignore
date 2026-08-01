@@ -3,6 +3,9 @@ dist/
 .DS_Store
 *.log
 
+# `tsc -b` drops these beside each tsconfig it builds
+*.tsbuildinfo
+
 # Playwright
 test-results/
 playwright-report/
