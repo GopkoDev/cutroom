@@ -11,7 +11,7 @@ Plain JSON, versioned, stored in IndexedDB (ADR 0007). Contains nothing device-s
 
 | Field | Type | Notes |
 |---|---|---|
-| `schemaVersion` | integer | Drives migrations. Starts at `1`. |
+| `schemaVersion` | integer | Drives migrations. Version 1 is the first shape that carries this field; a document without one is version 0, the shape from before versioning existed, and only `migrateProject` opens it. |
 | `id` | string | Stable across renames and storage moves. |
 | `name` | string | User-facing. |
 | `createdAt` / `modifiedAt` | ISO string | Timestamps are strings, not `Date`, to stay serializable. |
@@ -141,8 +141,10 @@ Lives in the store but outside the Project document, and is never undoable.
 | Rule | Enforced where | Spec reference |
 |---|---|---|
 | Frame values are integers | Model, at document parse and on every reducer write | FR-006 |
-| Clips do not overlap on a Track | Reducer | Data integrity |
-| `durationFrames > 0` | Reducer | Data integrity |
+| Clips do not overlap on a Track | Reducer + parse | Data integrity |
+| `durationFrames > 0` | Reducer + parse | Data integrity |
+| `Timeline.durationFrames` equals the maximum Clip end | Reducer + parse | Data integrity |
+| Source ids are unique, and every Clip's `sourceId` resolves | Parse | Data integrity |
 | Timebase is a positive ratio | Migration + parse | ADR 0002 |
 | Document contains no handles or class instances | Parse (structural clone round-trip in tests) | ADR 0004, 0005 |
 | Relinked file matches fingerprint | Link table write path | FR-021 |

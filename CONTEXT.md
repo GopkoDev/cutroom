@@ -8,6 +8,10 @@ A browser-based multi-track video editor. Everything — decoding, compositing, 
 The whole unit of work a user opens and saves: a frame size, a Timebase, the media it draws on, and one Timeline.
 _Avoid_: Composition, Document, Sequence
 
+**Project Document**:
+The serialized form of a Project: plain versioned JSON, the thing that is saved, loaded, migrated and one day uploaded. Distinct from the Project itself, which is what the editor holds while you work. "Document" on its own is still the wrong name for a Project — it is only ever this.
+_Avoid_: Save file, Doc, Project file
+
 **Timeline**:
 The arrangement of Clips over time that defines what the Project looks and sounds like at any Frame.
 _Avoid_: Sequence, Edit
