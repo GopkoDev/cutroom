@@ -113,9 +113,18 @@ persisted.
 |---|---|---|
 | `timebase` | `{ numerator, denominator }` | |
 | `frameSize` | `{ width, height }` | |
-| `clips` | `SceneClip[]` | Back to front. |
+| `clips` | `SceneClip[]` | Back to front: `timeline.tracks[0]` is the backmost Track and each later one draws over it. The Timeline shows Tracks the other way up, so the reversal lives in the interface where presentation belongs. |
 
-`SceneClip` = `{ clipId, sourceId, startFrame, durationFrames, sourceInPoint, transform }`.
+`SceneClip` = `{ clipId, sourceId, startFrame, durationFrames, sourceInPoint }`.
+
+No `transform`: schema version 1 gives a Clip no position, scale or rotation, so projecting a
+constant identity would put a field in the protocol that no Project can vary and no renderer can
+trust. It arrives with `Clip.transform` (see [future.md](../../docs/future.md)), and a test in
+`scene.test.ts` fails on that day to say so.
+
+A Clip whose Source is Offline stays in the Scene and renders empty. Link status is runtime state
+in the store, not part of the Project — if the projection filtered Offline Clips out, granting
+permission to a file would look like an edit to the picture and force a needless repost.
 
 Named `SceneClip`, because that is what each one is — a Clip as the renderer needs to see it.
 Not `SceneLayer`, and not `SceneItem` either: `CONTEXT.md` lists "Layer" under the words to avoid

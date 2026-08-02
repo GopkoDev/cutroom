@@ -90,7 +90,7 @@ projectScene(project): Scene
 **Contract**
 
 - Pure and total. Contains only what affects the picture (see data-model).
-- Deterministic ordering: `SceneClip`s back to front, stable across calls, so two identical Projects
+- Deterministic ordering: `SceneClip`s back to front — `tracks[0]` backmost — stable across calls, so two identical Projects
   produce byte-identical Scenes.
 - Referentially transparent enough to memoise: an edit that does not change the picture must not
   produce a different Scene.

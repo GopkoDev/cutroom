@@ -125,7 +125,17 @@ the renderer.
 **Schema.** Yes.
 
 **Currently.** Version 1 has exactly one video Track, and the parser enforces it — not as a
-product rule but because the schema defines no other kind.
+product rule but because the schema defines no other kind. `SceneClip` deliberately carries no
+`transform` either: a field that no Project can vary is a field a renderer cannot trust, so it
+arrives with the Clip field rather than ahead of it. `packages/model/test/scene.test.ts` holds a
+test that fails on the day `Clip` gains a transform, which is the reminder to widen the Scene in
+the same change.
+
+**Already settled, so it is not re-argued later.** `timeline.tracks[0]` is the **backmost** Track
+and each later one draws over it. The Timeline displays Tracks the other way up — the topmost row
+is the frontmost Track — so the reversal belongs in the interface, not in the model. This was
+undetectable while there was one Track, which is exactly why it is written down before there are
+two.
 
 ---
 
