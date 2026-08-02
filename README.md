@@ -38,6 +38,8 @@ pnpm typecheck
 3. [docs/adr](./docs/adr) — ten decisions, each with what it cost.
 4. [specs/001-import-play-export](./specs/001-import-play-export) — the current slice: import a
    file, play it with sound in sync, export an MP4 that matches what you saw.
+5. [docs/future.md](./docs/future.md) — what was deliberately left out, and what each omission
+   will cost when it comes back.
 
 ## Non-obvious constraints
 

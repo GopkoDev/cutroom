@@ -132,6 +132,10 @@ importers:
         version: link:../model
 
   packages/model:
+    dependencies:
+      immer:
+        specifier: ^10.2.0
+        version: 10.2.0
     devDependencies:
       vitest:
         specifier: ^3

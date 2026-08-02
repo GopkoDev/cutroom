@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "vitest": "^3"
+  },
+  "dependencies": {
+    "immer": "^10.2.0"
   }
 }

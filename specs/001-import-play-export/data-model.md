@@ -42,7 +42,10 @@ Plain JSON, versioned, stored in IndexedDB (ADR 0007). Contains nothing device-s
 
 **Rules**
 
-- A Source is immutable once imported. Re-importing the same file creates a second Source.
+- A Source is immutable once imported, with one exception: a Relink may correct its `name` and
+  `fingerprint`, because the file it addresses can legitimately be renamed or replaced by the same
+  content at another path. Nothing else about a Source ever changes — re-importing the same file
+  creates a second Source rather than modifying this one.
 - `address` says where it lives, never how to reach it on this machine.
 
 ### Timeline
@@ -144,7 +147,13 @@ Lives in the store but outside the Project document, and is never undoable.
 | Clips do not overlap on a Track | Reducer + parse | Data integrity |
 | `durationFrames > 0` | Reducer + parse | Data integrity |
 | `Timeline.durationFrames` equals the maximum Clip end | Reducer + parse | Data integrity |
-| Source ids are unique, and every Clip's `sourceId` resolves | Parse | Data integrity |
+| Source and Clip ids are unique | Reducer + parse | Data integrity |
+| Every Clip's `sourceId` resolves to a Source | Parse | Data integrity |
 | Timebase is a positive ratio | Migration + parse | ADR 0002 |
 | Document contains no handles or class instances | Parse (structural clone round-trip in tests) | ADR 0004, 0005 |
 | Relinked file matches fingerprint | Link table write path | FR-021 |
+
+A Relink is split across the two stores on purpose: the handle and its permission go to the
+device-local link table, and only the Source's `name` and `fingerprint` are part of the Project
+Document. A Relink that finds the document already correct therefore changes nothing and produces
+no patches — it must not put an entry on the undo stack that would undo nothing.

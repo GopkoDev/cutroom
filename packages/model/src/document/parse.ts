@@ -172,6 +172,23 @@ function expectTimestamp(value: unknown, path: string): string {
 }
 
 /**
+ * Whether `parseProject` would accept this value as a timestamp.
+ *
+ * The reducer stamps `modifiedAt` with a value its caller supplies, and a document that this
+ * parser will refuse on the next load is data loss deferred by one session. So the rule lives in
+ * one place and both the parser and the reducer ask it, rather than a second regular expression
+ * drifting a day apart from this one.
+ */
+export function isTimestamp(value: unknown): value is string {
+  try {
+    expectTimestamp(value, "timestamp")
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * A Timebase is a positive ratio, both parts integers: 30000/1001, never 29.97 (ADR 0002). A
  * numerator of zero would be a rate that converts nothing, and a denominator of zero is not a
  * number at all.

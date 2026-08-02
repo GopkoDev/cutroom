@@ -64,7 +64,10 @@ CURRENT_SCHEMA_VERSION: integer
 ```
 type Command = { type: "create-project", ... } | { type: "import-source", ... }
              | { type: "add-clip", ... }      | { type: "relink-source", ... }
-applyCommand(project, command): { project, patches, inversePatches }
+applyCommand(project: Project | null, command): { project, patches, inversePatches }
+// null is the prior state accepted by `create-project`, and by nothing else:
+// a Project has to come from somewhere, and the reducer is that somewhere.
+// `patches` is redo, `inversePatches` is undo — both fall out of the same write.
 ```
 
 **Contract**
