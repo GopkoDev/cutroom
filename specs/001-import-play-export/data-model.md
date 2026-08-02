@@ -81,28 +81,33 @@ Plain JSON, versioned, stored in IndexedDB (ADR 0007). Contains nothing device-s
   b.startFrame`. Adjacency is integer equality, so butt joins are exact.
 - A Clip whose Source is Offline stays on the Timeline and renders as empty.
 
-## Not persisted: device-local link table
+## Device-local: the link table
 
-Separate IndexedDB store, never part of the document, never synchronised (ADR 0005).
+A second IndexedDB store. It is persisted — but never part of the Project Document, and never
+synchronised (ADR 0005). Keyed by `sourceId`, holding a `FileSystemFileHandle`, which is
+structured-cloneable and therefore survives a reload.
 
-| Field | Type | Notes |
-|---|---|---|
-| `sourceId` | string | Key. |
-| `handle` | `FileSystemFileHandle` | Structured-cloneable, survives reload. Permission is a separate question from existence. |
-
-**States a Source can be in at runtime** (derived, not stored):
+**Two states, derived on every check, never stored:**
 
 ```
-Unlinked ──user picks file──▶ Linked (permission granted) ──▶ readable
-   ▲                              │
-   │                     permission lapsed / file moved
-   └────────── Relink ──────── Offline
+                 user picks a file, permission granted
+   Offline ──────────────────────────────────────────▶ Linked ──▶ readable
+      ▲                                                   │
+      └───────────────────────────────────────────────────┘
+              permission lapses, or the file moves
 ```
 
-- `Linked` requires both an entry in this table and a granted read permission. Requesting
-  permission needs a user gesture (FR-021), so reopening a Project lands in `Offline` until the
-  user acts.
-- `Relink` verifies the newly picked file against `Source.fingerprint` before rebinding.
+- `Linked` needs both an entry in this table *and* a granted read permission. Requesting
+  permission needs a user gesture (FR-021), so reopening a Project always lands in `Offline`
+  until the user acts. That is the browser's rule, not a defect to design around.
+- `Offline` covers every way of not being readable, including never having been linked on this
+  machine. Which of those it is belongs in the *reason* shown to the user, not in a third state —
+  and "Unlinked" is not a word to use, since CONTEXT.md keeps it out of the vocabulary.
+- A **Relink** ends in `Linked`. It verifies the picked file's **size** against
+  `Source.fingerprint` and then corrects `name` and `lastModified` in the Document. Only size is
+  verified, because verifying `lastModified` too would make the correction of `lastModified`
+  impossible, and would refuse a copy of the right file. The name is never verified: quickstart's
+  Relink check renames the fixture on disk on purpose.
 
 ## Runtime only: the Scene
 
