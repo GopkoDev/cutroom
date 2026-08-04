@@ -20,3 +20,6 @@ docs/
 .specify/
 CONTEXT.md
 README.md
+
+# Installed skills — third-party files, not ours to format
+.agents/
