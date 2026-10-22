@@ -193,7 +193,10 @@ Exporting requirements it belongs to rather than in numeric order at the end.
 **Environment**
 
 - **FR-023**: The product MUST tell a user whose browser it does not support, on arrival, rather
-  than failing later during use.
+  than failing later during use. What is checked is what the product cannot work without: picking
+  a file, remembering that permission across sessions, compositing off the main thread, and
+  decoding video. Encoding is deliberately not among them — FR-024 already has a considered answer
+  for a machine that cannot encode sound, and refusing entry for it would contradict that.
 
 ### Key Entities
 

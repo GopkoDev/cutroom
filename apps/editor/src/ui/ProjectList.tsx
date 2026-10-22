@@ -1,119 +1,151 @@
-// Where the app lands when no Project is open, including after a reload (FR-020). Lists what the
-// Project library holds, opens one on click, and starts a new empty one.
+// Where the app lands when no Project is open — on arrival, and after every reload (FR-020).
 //
-// A Project this build cannot open (saved by a newer Cutroom) is listed anyway, marked, and not
-// clickable: this is the screen a user checks to find out their work is still there.
+// The store can already enumerate Projects (T027). This is the surface that makes that visible:
+// without it, "MUST list existing Projects so one can be reopened" is satisfied by a function
+// nobody can call, and quickstart's persistence walk-through asserts the screen rather than the
+// store.
+//
+// Two things it deliberately does that a list would not have to.
+//
+// **A Project this build cannot open is listed and says so.** `listProjects` is generous where
+// `loadProject` is strict, precisely so that a document written by a newer Cutroom still appears.
+// Dropping it here would undo that: the user would conclude their work had been lost, which is both
+// false and unrecoverable-looking. It is shown, greyed, with the reason in words.
+//
+// **A Project with no name is not given one.** `ProjectSummary.name` is `null` when the stored
+// record carries nothing usable, and the summary's own comment says what to show in its place is
+// this screen's decision. It is rendered as "Untitled Project" *here* and never written back —
+// inventing a name in storage would turn a display choice into an edit.
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
-import {
-  listProjects,
-  loadProject,
-  ProjectLoadError,
-  type ProjectSummary,
-} from "@/storage/projects"
-import { editorStore } from "@/store"
-import { autosave } from "@/store/session"
+import { listProjects, type ProjectSummary } from "@/storage/projects"
+import { useEditorStore } from "@/store"
 
-/** A new Project has no Source to take a Timebase or frame size from yet. These stand in until the
- * first import adopts the Source's (FR-005). */
-const PLACEHOLDER_TIMEBASE = { numerator: 30, denominator: 1 }
-const PLACEHOLDER_FRAME_SIZE = { width: 1920, height: 1080 }
+/**
+ * When a Project was last touched, as a person reads it.
+ *
+ * `Intl.DateTimeFormat` in the browser's own locale rather than a format of ours: this is the one
+ * place in the product where a stored ISO timestamp is shown to someone, and the Timebase rules
+ * about never using floats have nothing to say about a wall-clock date.
+ */
+const WHEN = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
 
-function describeModified(modifiedAt: string | null): string {
-  if (modifiedAt === null) return "unknown"
-  const time = Date.parse(modifiedAt)
-  return Number.isNaN(time) ? "unknown" : new Date(time).toLocaleString()
+function lastTouched(modifiedAt: string | null): string {
+  if (modifiedAt === null) return "never saved"
+  const instant = Date.parse(modifiedAt)
+  return Number.isNaN(instant) ? "never saved" : WHEN.format(instant)
 }
 
-export function ProjectList() {
-  const [projects, setProjects] = useState<ProjectSummary[] | null>(null)
-  const [problem, setProblem] = useState<string | null>(null)
+type Listing =
+  | { readonly state: "loading" }
+  | { readonly state: "ready"; readonly projects: readonly ProjectSummary[] }
+  | { readonly state: "failed"; readonly reason: string }
 
-  const refresh = useCallback(async () => {
-    try {
-      // Anything still in the debounce window is written first, or a just-edited Project would be
-      // missing from — or stale in — the list.
-      await autosave.flush()
-      setProjects(await listProjects())
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error))
-      setProjects([])
+export function ProjectList() {
+  const [listing, setListing] = useState<Listing>({ state: "loading" })
+  const newProject = useEditorStore((state) => state.newProject)
+  const openProject = useEditorStore((state) => state.openProject)
+  const openFailure = useEditorStore((state) => state.openFailure)
+
+  // Listed on mount and not refreshed afterwards, because this screen is unmounted the moment a
+  // Project opens and mounted again on the way back — so "on mount" and "every time the list is
+  // looked at" are the same occasion.
+  useEffect(() => {
+    let current = true
+    void listProjects().then(
+      (projects) => {
+        if (current) setListing({ state: "ready", projects })
+      },
+      (error: unknown) => {
+        // Only a broken database reaches here — one unreadable Project does not, by design. So the
+        // message is about storage rather than about any one Project.
+        if (current) {
+          setListing({
+            state: "failed",
+            reason: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    )
+    return () => {
+      current = false
     }
   }, [])
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- loading data from IndexedDB on arrival
-    void refresh()
-  }, [refresh])
-
-  async function open(id: string) {
-    setProblem(null)
-    try {
-      const project = await loadProject(id)
-      if (project === undefined) {
-        setProblem("That Project is no longer in storage.")
-        await refresh()
-        return
-      }
-      editorStore.getState().openProject(project)
-    } catch (error) {
-      setProblem(
-        error instanceof ProjectLoadError
-          ? error.message
-          : `Could not open the Project. ${error instanceof Error ? error.message : String(error)}`
-      )
-    }
-  }
-
-  function create() {
-    setProblem(null)
-    editorStore.getState().openProject(null)
-    editorStore.getState().dispatch({
-      type: "create-project",
-      at: new Date().toISOString(),
-      projectId: crypto.randomUUID(),
-      name: "Untitled project",
-      timebase: PLACEHOLDER_TIMEBASE,
-      frameSize: PLACEHOLDER_FRAME_SIZE,
-      track: { id: crypto.randomUUID(), name: "Video 1" },
-    })
-  }
-
   return (
-    <main className="mx-auto flex min-h-svh max-w-xl flex-col gap-4 p-6 text-sm">
-      <div className="flex items-center justify-between">
-        <h1 className="text-base font-medium">Projects</h1>
-        <Button onClick={create}>New project</Button>
+    <main
+      data-testid="project-list"
+      className="mx-auto flex min-h-svh max-w-2xl flex-col gap-6 p-8"
+    >
+      <div className="flex items-center gap-3">
+        <h1 className="text-lg font-medium">Projects</h1>
+        <Button
+          className="ml-auto"
+          size="sm"
+          data-testid="new-project"
+          onClick={() => {
+            newProject()
+          }}
+        >
+          New Project
+        </Button>
       </div>
 
-      {problem !== null && (
-        <p role="alert" className="rounded-md bg-destructive/15 p-3 text-xs text-destructive">
-          {problem}
+      {openFailure !== null && (
+        <p data-testid="open-failure" className="text-sm text-destructive">
+          {openFailure}
         </p>
       )}
 
-      {projects === null ? (
-        <p className="text-muted-foreground">Loading…</p>
-      ) : projects.length === 0 ? (
-        <p className="text-muted-foreground">No Projects yet. Create one to get started.</p>
-      ) : (
-        <ul className="divide-y rounded-md border">
-          {projects.map((summary) => (
+      {listing.state === "loading" && (
+        <p data-testid="project-list-loading" className="text-sm text-muted-foreground">
+          Looking for your Projects…
+        </p>
+      )}
+
+      {listing.state === "failed" && (
+        <p data-testid="project-list-failed" className="text-sm text-destructive">
+          Your Projects could not be read from this browser&apos;s storage. {listing.reason}
+        </p>
+      )}
+
+      {listing.state === "ready" && listing.projects.length === 0 && (
+        <p data-testid="project-list-empty" className="text-sm text-muted-foreground">
+          No Projects yet. Start one, then bring in a video — the first one you import gives the
+          Project its frame size and its Timebase.
+        </p>
+      )}
+
+      {listing.state === "ready" && listing.projects.length > 0 && (
+        <ul className="flex flex-col gap-2">
+          {listing.projects.map((summary) => (
             <li key={summary.id}>
               <button
                 type="button"
+                data-testid="project-row"
+                data-project-id={summary.id}
+                data-openable={String(summary.openable)}
                 disabled={!summary.openable}
-                onClick={() => void open(summary.id)}
-                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => {
+                  void openProject(summary.id)
+                }}
+                className="flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >
-                <span className="font-medium">{summary.name ?? "Untitled project"}</span>
-                <span className="text-xs text-muted-foreground">
-                  Modified {describeModified(summary.modifiedAt)}
-                  {!summary.openable &&
-                    " — saved by a newer version of Cutroom, can't be opened here"}
+                <span data-testid="project-row-name" className="text-sm font-medium">
+                  {summary.name ?? "Untitled Project"}
                 </span>
+                <span className="text-xs text-muted-foreground">
+                  Last modified {lastTouched(summary.modifiedAt)}
+                </span>
+                {!summary.openable && (
+                  <span data-testid="project-row-unopenable" className="text-xs text-destructive">
+                    Saved by a newer version of Cutroom (schema version{" "}
+                    {summary.schemaVersion ?? "unreadable"}). This build cannot open it, and your
+                    work is still here.
+                  </span>
+                )}
               </button>
             </li>
           ))}

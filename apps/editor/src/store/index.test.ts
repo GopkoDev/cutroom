@@ -1,12 +1,13 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { CommandError, type Clip, type Command, type Source } from "@cutroom/model"
+import { CommandError, type Clip, type Command, type Project, type Source } from "@cutroom/model"
 
-import { createEditorStore } from "./index"
+import { canRedo, canUndo, createEditorStore, TransactionError } from "./index"
 
-// The store's promises are about history, so every test here is a sequence of edits followed by
+// The store's promises are about history, so most tests here are a sequence of edits followed by
 // undo/redo, compared to the Project at an earlier point with `toStrictEqual` — "the same
-// document", not "looks right".
+// document", not "looks right". The e2e specs cover the same ground in the real browser; these are
+// the fast loop.
 
 const source: Source = {
   id: "source-1",
@@ -45,19 +46,28 @@ const addClip = (id: string, startFrame: number): Command => ({
   clip: clip(id, startFrame),
 })
 
+function setup(loaded?: Project) {
+  const saver = { save: vi.fn(), flush: vi.fn(async () => undefined) }
+  const loadProject = vi.fn(async () => loaded)
+  const store = createEditorStore({ saver, loadProject })
+  return { store, saver, loadProject }
+}
+
+/** A store with a Project in it, as the first import leaves it. */
 function started() {
-  const store = createEditorStore()
-  store.getState().dispatch(create)
-  return store
+  const context = setup()
+  context.store.getState().newProject()
+  context.store.getState().run(create)
+  return context
 }
 
 describe("undo and redo", () => {
   it("undoes one command at a time and redoes it to the same document", () => {
-    const store = started()
-    const { dispatch, undo, redo } = store.getState()
-    dispatch(importSource)
+    const { store } = started()
+    const { run, undo, redo } = store.getState()
+    run(importSource)
     const afterImport = store.getState().project
-    dispatch(addClip("clip-1", 0))
+    run(addClip("clip-1", 0))
     const afterClip = store.getState().project
 
     undo()
@@ -66,52 +76,58 @@ describe("undo and redo", () => {
     expect(store.getState().project).toStrictEqual(afterClip)
   })
 
+  it("undoes create-project back to no Project, which is where the first import began", () => {
+    const { store } = started()
+    store.getState().undo()
+    expect(store.getState().project).toBeNull()
+    expect(store.getState().scene).toBeNull()
+    store.getState().redo()
+    expect(store.getState().project?.id).toBe("project-1")
+  })
+
   it("does nothing when there is nothing to undo or redo", () => {
-    const store = started()
-    const before = store.getState().project
+    const { store } = setup()
     store.getState().undo()
     store.getState().redo()
-    expect(store.getState().project).toBe(before)
+    expect(store.getState().project).toBeNull()
+    expect(canUndo(store.getState())).toBe(false)
+    expect(canRedo(store.getState())).toBe(false)
   })
 
   it("drops the redo stack when a new edit is made after an undo", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
+    const { store } = started()
+    store.getState().run(importSource)
     store.getState().undo()
     expect(store.getState().future).toHaveLength(1)
-    store.getState().dispatch(importSource)
+    store.getState().run(importSource)
     expect(store.getState().future).toHaveLength(0)
   })
 
-  it("does not record create-project, so undo cannot return to no Project", () => {
-    const store = started()
-    expect(store.getState().past).toHaveLength(0)
-    store.getState().undo()
-    expect(store.getState().project).not.toBeNull()
-  })
-
   it("refuses a command the reducer refuses and leaves Project and history alone", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
+    const { store } = started()
+    store.getState().run(importSource)
     const before = store.getState()
-    expect(() => store.getState().dispatch(importSource)).toThrow(CommandError)
+    expect(() => store.getState().run(importSource)).toThrow(CommandError)
     expect(store.getState().project).toBe(before.project)
-    expect(store.getState().past).toHaveLength(1)
+    expect(store.getState().past).toHaveLength(before.past.length)
+    expect(store.getState().openTransaction).toBeNull()
   })
 })
 
 describe("transactions", () => {
-  it("groups a gesture into one undo step, undone in reverse and redone in order", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
+  it("groups a gesture into one labelled undo step, undone in reverse and redone in order", () => {
+    const { store } = started()
+    store.getState().run(importSource)
     const before = store.getState().project
+    const depth = store.getState().past.length
 
-    store.getState().transaction(() => {
-      store.getState().dispatch(addClip("clip-1", 0))
-      store.getState().dispatch(addClip("clip-2", 100))
+    store.getState().transact("Add two", () => {
+      store.getState().run(addClip("clip-1", 0))
+      store.getState().run(addClip("clip-2", 100))
     })
     const after = store.getState().project
-    expect(store.getState().past).toHaveLength(2)
+    expect(store.getState().past).toHaveLength(depth + 1)
+    expect(store.getState().past.at(-1)?.label).toBe("Add two")
 
     store.getState().undo()
     expect(store.getState().project).toStrictEqual(before)
@@ -119,71 +135,162 @@ describe("transactions", () => {
     expect(store.getState().project).toStrictEqual(after)
   })
 
-  it("makes only the outermost transaction an undo step", () => {
-    const store = started()
-    store.getState().transaction(() => {
-      store.getState().dispatch(importSource)
-      store.getState().transaction(() => store.getState().dispatch(addClip("clip-1", 0)))
+  it("makes create-project, import and add-clip one step that undoes to no Project (T041)", () => {
+    const { store } = setup()
+    store.getState().newProject()
+    store.getState().transact("Import", () => {
+      store.getState().run(create)
+      store.getState().run(importSource)
+      store.getState().run(addClip("clip-1", 0))
     })
     expect(store.getState().past).toHaveLength(1)
+    store.getState().undo()
+    expect(store.getState().project).toBeNull()
   })
 
-  it("rolls back everything a failed transaction applied and records nothing", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
+  it("joins rather than nests: only the outermost close commits, under the outer label", () => {
+    const { store } = started()
+    const depth = store.getState().past.length
+    store.getState().transact("Outer", () => {
+      store.getState().run(importSource)
+      store.getState().transact("Inner", () => store.getState().run(addClip("clip-1", 0)))
+      expect(store.getState().past).toHaveLength(depth)
+    })
+    expect(store.getState().past).toHaveLength(depth + 1)
+    expect(store.getState().past.at(-1)?.label).toBe("Outer")
+  })
+
+  it("aborts to the exact Project the gesture opened on, and records nothing", () => {
+    const { store } = started()
+    store.getState().run(importSource)
     const before = store.getState().project
+    const depth = store.getState().past.length
 
     expect(() =>
-      store.getState().transaction(() => {
-        store.getState().dispatch(addClip("clip-1", 0))
-        store.getState().dispatch(addClip("clip-2", 50)) // overlaps clip-1
+      store.getState().transact("Overlap", () => {
+        store.getState().run(addClip("clip-1", 0))
+        store.getState().run(addClip("clip-2", 50)) // overlaps clip-1
       })
     ).toThrow(CommandError)
 
-    expect(store.getState().project).toStrictEqual(before)
-    expect(store.getState().past).toHaveLength(1)
-    // And the store is usable afterwards: the failed transaction left nothing open.
-    store.getState().dispatch(addClip("clip-1", 0))
-    expect(store.getState().past).toHaveLength(2)
+    expect(store.getState().project).toBe(before)
+    expect(store.getState().past).toHaveLength(depth)
+    expect(store.getState().openTransaction).toBeNull()
+    store.getState().run(addClip("clip-1", 0))
+    expect(store.getState().past).toHaveLength(depth + 1)
   })
 
-  it("records nothing for a transaction that changed nothing", () => {
-    const store = started()
-    store.getState().transaction(() => undefined)
-    expect(store.getState().past).toHaveLength(0)
+  it("records nothing, and keeps the redo stack, for a gesture that changed nothing", () => {
+    const { store } = started()
+    store.getState().run(importSource)
+    store.getState().undo()
+    const { past, future } = store.getState()
+    store.getState().transact("Nothing", () => undefined)
+    expect(store.getState().past).toBe(past)
+    expect(store.getState().future).toBe(future)
+  })
+
+  it("spans events with beginTransaction, and blocks undo while it is open", () => {
+    const { store } = started()
+    store.getState().run(importSource)
+    const drag = store.getState().beginTransaction("Drag")
+    store.getState().run(addClip("clip-1", 0))
+
+    expect(store.getState().openTransaction).toBe("Drag")
+    expect(canUndo(store.getState())).toBe(false)
+    expect(() => store.getState().undo()).toThrow(TransactionError)
+    expect(() => store.getState().redo()).toThrow(TransactionError)
+
+    drag.commit()
+    expect(store.getState().openTransaction).toBeNull()
+    expect(canUndo(store.getState())).toBe(true)
+    expect(() => drag.commit()).toThrow(TransactionError)
   })
 })
 
 describe("runtime state", () => {
   it("is untouched by undo and absent from history", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
+    const { store } = started()
+    store.getState().run(importSource)
     store.getState().setPlayhead(42)
-    store.getState().setSourceStatus("source-1", "offline")
-    const past = store.getState().past
+    store.getState().setTransport("playing")
+    store.getState().markSource("source-1", "linked")
+    const depth = store.getState().past.length
 
     store.getState().undo()
     expect(store.getState().playheadFrame).toBe(42)
-    expect(store.getState().sourceStatus).toEqual({ "source-1": "offline" })
+    expect(store.getState().transport).toBe("playing")
+    expect(store.getState().sourceStatus).toEqual({ "source-1": "linked" })
 
     store.getState().setPlayhead(7)
-    // Moving the playhead after the undo added nothing to either stack.
-    expect(past).toHaveLength(1)
-    expect(store.getState().past).toHaveLength(0)
+    expect(store.getState().past).toHaveLength(depth - 1)
     expect(store.getState().future).toHaveLength(1)
   })
 })
 
-describe("openProject", () => {
-  it("starts a fresh history and resets runtime state", () => {
-    const store = started()
-    store.getState().dispatch(importSource)
-    store.getState().setPlayhead(9)
-    const project = store.getState().project
+describe("the Scene", () => {
+  it("bumps the revision only when the projected picture changes", () => {
+    const { store } = started()
+    const first = store.getState()
+    expect(first.scene).not.toBeNull()
 
-    store.getState().openProject(project)
+    // Importing a Source puts nothing on the Timeline, so the picture is the same object.
+    store.getState().run(importSource)
+    expect(store.getState().scene).toBe(first.scene)
+    expect(store.getState().sceneRevision).toBe(first.sceneRevision)
+
+    store.getState().run(addClip("clip-1", 0))
+    expect(store.getState().scene).not.toBe(first.scene)
+    expect(store.getState().sceneRevision).toBe(first.sceneRevision + 1)
+  })
+})
+
+describe("saving", () => {
+  it("hands every Project change to the saver, and not the lack of one", () => {
+    const { store, saver } = setup()
+    store.getState().newProject()
+    store.getState().run(create)
+    store.getState().run(importSource)
+    expect(saver.save).toHaveBeenCalledTimes(2)
+    expect(saver.save).toHaveBeenLastCalledWith(store.getState().project)
+
+    store.getState().undo()
+    store.getState().undo()
+    // Back to no Project: nothing to write.
+    expect(saver.save).toHaveBeenCalledTimes(3)
+  })
+
+  it("flushes before leaving the editor", async () => {
+    const { store, saver } = started()
+    await store.getState().closeProject()
+    expect(saver.flush).toHaveBeenCalledOnce()
+    expect(store.getState().screen).toBe("projects")
+    expect(store.getState().project).toBeNull()
+  })
+})
+
+describe("opening a Project", () => {
+  it("opens with an empty history, reset runtime state, and does not write it back", async () => {
+    const seed = started()
+    seed.store.getState().run(importSource)
+    const stored = seed.store.getState().project!
+
+    const { store, saver } = setup(stored)
+    store.getState().setPlayhead(9)
+    await store.getState().openProject(stored.id)
+
+    expect(store.getState().screen).toBe("editor")
+    expect(store.getState().project).toBe(stored)
     expect(store.getState().past).toHaveLength(0)
     expect(store.getState().playheadFrame).toBe(0)
-    expect(store.getState().loaded).toBe(project)
+    expect(store.getState().scene).not.toBeNull()
+    expect(saver.save).not.toHaveBeenCalled()
+  })
+
+  it("stays on the list and says why when the Project is gone", async () => {
+    const { store } = setup(undefined)
+    await store.getState().openProject("missing")
+    expect(store.getState().screen).toBe("projects")
+    expect(store.getState().openFailure).toMatch(/no longer/)
   })
 })

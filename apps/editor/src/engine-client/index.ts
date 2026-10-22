@@ -1,183 +1,363 @@
-// The main thread's end of the engine worker (ADR 0003, contracts/worker-protocol.md).
+// The main thread's half of the worker protocol (contracts/worker-protocol.md, ADR 0003).
 //
-// Two shapes of traffic cross this boundary and they are deliberately not the same shape here.
+// One module spawns the engine, transfers the Preview's canvas into it, and is the only place in
+// `apps/editor` that calls `postMessage` at it. Everything else here follows from the contract.
 //
-// **Request/response** — `init` and `attach-source`. The worker always answers (`ready` / `fatal`,
-// `source-attached` / `source-failed`), so each returns a promise that settles on that answer.
+// **Two shapes, not one, and the difference is the whole point of this file.**
 //
-// **Streams** — `scene`, `render-frame` and `transport` return nothing. `render-frame` above all:
-// FR-012 lets the worker drop a superseded request without ever answering it, so a promise per
-// Frame would leak one for every Frame dropped, which during playback is most of them. What is on
-// screen is observed through `onFrameRendered`, an announcement and not a reply.
+// `attach-source` and `export-start` are request/response: each carries a reply that always comes,
+// so each returns a promise. `render-frame` is a *stream*: it carries no id, gets no matching
+// reply, and the worker is explicitly allowed to coalesce it — a newer request displaces an older
+// one and the older is never answered (FR-012, invariant 3). So `renderFrame` returns `void`, and
+// what is on screen is observed by listening for `frame-rendered`.
 //
-// `fatal` is the third thing. It is not tied to any request, so it settles every promise still
-// waiting and is also pushed to `onFatal` listeners: a worker that has died must be visible, not a
-// preview that quietly stops answering (invariant 5).
+// A client that returned a promise per `render-frame` would leak one for every Frame the design
+// deliberately drops, which during playback on a loaded machine is most of them. The protocol says
+// this in as many words; it is repeated here because the mistake is invisible until a long session
+// runs out of memory.
+//
+// **A `fatal` settles everything that was waiting.** The worker forwards every throw as a `fatal`
+// and leaves itself running, because whether to replace it is the main thread's decision. What the
+// main thread must not do is keep waiting: an `attachSource` promise pending across a `fatal` never
+// settles, and a UI awaiting it is frozen with no error anywhere — the exact failure invariant 5
+// exists to prevent, reintroduced one layer up. So a `fatal` rejects every outstanding request,
+// puts the client into a failed state, and every later request rejects immediately with the same
+// reason rather than joining a queue nothing will ever drain.
+//
+// **Every id and every conversion is somebody else's.** No rate arithmetic happens here (R7): a
+// Frame is an integer the caller worked out through `packages/model`, and a `Scene` is projected by
+// `projectScene`. This module moves messages and correlates replies, and holds no opinion about
+// what is in them.
+
+import EngineWorker from "@cutroom/engine/worker?worker"
 
 import type {
-  AttachSourceMessage,
   EngineCapabilities,
   EngineEvent,
+  ExportStartMessage,
   FatalEvent,
-  FrameRenderedEvent,
   SourceAttachedEvent,
   ToEngine,
 } from "@cutroom/engine/protocol"
-import EngineWorker from "@cutroom/engine/worker?worker"
 import type { Frame, PixelSize, Scene, Timebase } from "@cutroom/model"
 
-/** The worker cannot continue. Carries the worker's own words and, when it sent one, its stack. */
+/** One event the worker can send, picked out of the union by its `type`. */
+export type EngineEventOf<T extends EngineEvent["type"]> = Extract<EngineEvent, { type: T }>
+
+/** Called with each event of the type it was registered for. */
+export type EngineListener<T extends EngineEvent["type"]> = (event: EngineEventOf<T>) => void
+
+/**
+ * The engine stopped being able to continue, and something was waiting on it.
+ *
+ * Distinct from an ordinary `Error` so a caller can tell "this Source could not be decoded" — a
+ * fact about the user's file — from "the engine fell over", which is a fact about us. `reason` and
+ * `stack` are the worker's own words, forwarded rather than paraphrased.
+ */
 export class EngineFatalError extends Error {
-  readonly workerStack: string | undefined
+  /** The worker's stack, when it had one. Not this client's — that would point at the wrong side. */
+  readonly engineStack: string | undefined
 
   constructor(event: FatalEvent) {
-    super(event.reason)
+    super(`The Cutroom engine stopped: ${event.reason}`)
     this.name = "EngineFatalError"
-    this.workerStack = event.stack
+    this.engineStack = event.stack
   }
 }
 
-/** A file the engine would not take (FR-003). `reason` is the worker's, meant for a person. */
-export class SourceRefusedError extends Error {
-  readonly sourceId: string
-
-  constructor(sourceId: string, reason: string) {
-    super(reason)
-    this.name = "SourceRefusedError"
-    this.sourceId = sourceId
+/** The client was shut down while something was still waiting for the engine to answer. */
+export class EngineClosedError extends Error {
+  constructor(reason: string) {
+    super(`The Cutroom engine was closed: ${reason}`)
+    this.name = "EngineClosedError"
   }
 }
 
-export type Unsubscribe = () => void
+/** Everything `export-start` needs except the destination, which is transferred separately. */
+export type ExportRequest = Omit<ExportStartMessage, "type" | "writable">
+
+/**
+ * How an export ended, when it ended in a way the user asked for.
+ *
+ * Cancelling is an outcome and not a failure — the user asked for it and got it — so it resolves.
+ * `export-failed` and `fatal` reject, because nobody asked for either.
+ */
+export type ExportOutcome =
+  { readonly status: "done"; readonly bytes: number } | { readonly status: "cancelled" }
+
+export interface EngineClientOptions {
+  /**
+   * The Preview's canvas, already detached from its element with `transferControlToOffscreen()`.
+   * It is transferred in `init` and belongs to the worker from that moment; the main thread cannot
+   * draw on it, size it, or transfer it a second time.
+   */
+  readonly canvas: OffscreenCanvas
+  /** A convenience for the first Render only — every `Scene` carries its own, and wins (invariant 6). */
+  readonly timebase: Timebase
+  readonly frameSize: PixelSize
+  /**
+   * How to make the worker. Replaced only in tests; the default is the engine's own entry point,
+   * reached through its `exports` map so there is no second spelling of where the engine lives.
+   */
+  readonly createWorker?: () => Worker
+}
 
 export interface EngineClient {
-  /** Transfers the canvas and resolves with what this machine can do, once the renderer is up. */
-  init(
-    canvas: OffscreenCanvas,
-    timebase: Timebase,
-    frameSize: PixelSize
-  ): Promise<EngineCapabilities>
-  /** Rejects with `SourceRefusedError` when the file is unusable, so the Project stays untouched. */
+  /**
+   * What this machine turned out to be able to do, once `init` has been answered.
+   *
+   * Rejects if the engine falls over before it can say — a browser that cannot give the worker a
+   * GPU context has to be a refusal the UI can show, not a Preview that never updates.
+   */
+  readonly ready: Promise<EngineCapabilities>
+
+  /** The same capabilities once they have arrived, for a caller that is past the await. */
+  capabilities(): EngineCapabilities | null
+
+  /** The `fatal` this engine reported, if it has. Non-null means every request now rejects. */
+  fatal(): FatalEvent | null
+
+  /**
+   * Hands the engine a Source's bytes and waits for what it reads back.
+   *
+   * Request/response: `source-attached` resolves it, `source-failed` rejects it with the engine's
+   * own reason, and a `fatal` rejects it too. Correlated by `sourceId`, which is all the protocol
+   * carries — so two attaches of the *same* Source cannot be told apart and the second is refused
+   * rather than left to be settled by the first one's reply.
+   */
   attachSource(sourceId: string, file: File): Promise<SourceAttachedEvent>
+
+  /** Closes the engine's decoders for a Source. No reply, so nothing to await. */
   detachSource(sourceId: string): void
 
-  /** Replaces the worker's picture of the Timeline. Returns nothing: a stream. */
+  /**
+   * Replaces the engine's picture of the Timeline. `revision` must increase: the engine ignores a
+   * Scene whose revision is not newer than the one it holds.
+   */
   postScene(revision: number, scene: Scene): void
-  /** Asks for a Frame. Returns nothing and may never be answered: see `onFrameRendered`. */
+
+  /**
+   * Asks for one Frame, and returns nothing.
+   *
+   * A stream, not a call. The request may be superseded and never answered (FR-012), so there is
+   * nothing here to await and nothing that could time out. Listen for `frame-rendered` to learn
+   * what the Preview is actually showing, and for `frames-dropped` to learn what it is not.
+   */
   renderFrame(frame: Frame, reason: "scrub" | "clock"): void
+
+  /** Lets the engine open or close its streaming iterators at the right moment. */
   setTransport(state: "playing" | "stopped", fromFrame: Frame): void
 
-  onFrameRendered(listener: (event: FrameRenderedEvent) => void): Unsubscribe
-  /** Called once if the worker dies. A listener added afterwards is told at once. */
-  onFatal(listener: (error: EngineFatalError) => void): Unsubscribe
-  /** `null` while the engine is healthy. */
-  readonly fatal: EngineFatalError | null
+  /**
+   * Starts an export and resolves when it is finished or cancelled.
+   *
+   * Request/response, and one at a time (spec assumption): a second call while one is running is
+   * refused rather than silently replacing it. `writable` is transferred, so the caller must not
+   * touch it afterwards.
+   */
+  startExport(
+    request: ExportRequest,
+    writable: FileSystemWritableFileStream
+  ): Promise<ExportOutcome>
 
-  terminate(): void
+  /** Mixed PCM for a running export. The channel buffers are transferred, not copied. */
+  sendExportAudioChunk(channels: readonly Float32Array[], startSample: number, final: boolean): void
+
+  /** Asks a running export to stop. The promise from `startExport` resolves as `cancelled`. */
+  cancelExport(): void
+
+  /** Subscribes to one kind of event. Returns the function that unsubscribes. */
+  on<T extends EngineEvent["type"]>(type: T, listener: EngineListener<T>): () => void
+
+  /**
+   * Stops the worker and rejects anything still waiting. Idempotent; nothing can be sent
+   * afterwards.
+   */
+  terminate(reason?: string): void
 }
 
-/** The part of `Worker` the client uses, so a test can stand in for the real thing. */
-export type EngineWorkerLike = Pick<Worker, "postMessage" | "terminate"> & {
-  onmessage: ((event: MessageEvent<EngineEvent>) => void) | null
-  onerror: ((event: ErrorEvent) => void) | null
-  onmessageerror: ((event: MessageEvent) => void) | null
+/** One request waiting for the reply the protocol promises it. */
+interface Pending<T> {
+  readonly settle: (value: T) => void
+  readonly refuse: (error: Error) => void
 }
 
-interface Settler<T> {
-  resolve(value: T): void
-  reject(error: unknown): void
-}
+/**
+ * Spawns the engine, transfers the canvas into it, and hands back the only way to talk to it.
+ *
+ * `init` is posted immediately and exactly once. Everything else may be sent as soon as this
+ * returns: messages queue in the worker's own event loop behind `init`, so there is no window in
+ * which a caller has a client that is not ready for it.
+ */
+export function startEngine(options: EngineClientOptions): EngineClient {
+  const worker = (options.createWorker ?? (() => new EngineWorker()))()
 
-export function createEngineClient(
-  worker: EngineWorkerLike = new EngineWorker() as unknown as EngineWorkerLike
-): EngineClient {
-  let fatal: EngineFatalError | null = null
-  let pendingInit: Settler<EngineCapabilities> | null = null
-  const pendingAttach = new Map<string, Settler<SourceAttachedEvent>>()
-  const frameListeners = new Set<(event: FrameRenderedEvent) => void>()
-  const fatalListeners = new Set<(error: EngineFatalError) => void>()
+  const listeners = new Map<EngineEvent["type"], Set<(event: EngineEvent) => void>>()
+  const attaching = new Map<string, Pending<SourceAttachedEvent>>()
 
+  let capabilities: EngineCapabilities | null = null
+  let fatal: FatalEvent | null = null
+  let closed: string | null = null
+  let exporting: Pending<ExportOutcome> | null = null
+  let announceReady: Pending<EngineCapabilities> | null = null
+
+  const ready = new Promise<EngineCapabilities>((settle, refuse) => {
+    announceReady = { settle, refuse }
+  })
+  // Nobody is obliged to await `ready` — the shell may only care that the Preview updates — and an
+  // unawaited rejection would surface as an unhandled promise rejection instead of as the `fatal`
+  // the UI is already being told about. One inert handler makes the rejection observable-but-quiet.
+  void ready.catch(() => {})
+
+  /** Why the engine cannot be talked to, or `null` while it can. */
+  function unavailable(): Error | null {
+    if (closed !== null) return new EngineClosedError(closed)
+    if (fatal !== null) return new EngineFatalError(fatal)
+    return null
+  }
+
+  /**
+   * Posts a message, unless the engine is past being able to answer.
+   *
+   * Streams are dropped rather than thrown from: `renderFrame` is called from a pointer move and an
+   * animation frame, and a client that threw there would take the UI down for a failure the UI has
+   * already been told about through `fatal`.
+   */
   function post(message: ToEngine, transfer: Transferable[] = []): void {
-    // After `fatal` the worker is not going to act on anything; posting would only look like it did.
-    if (fatal !== null) return
+    if (unavailable() !== null) return
     worker.postMessage(message, transfer)
   }
 
-  function die(error: EngineFatalError): void {
-    if (fatal !== null) return
-    fatal = error
-    pendingInit?.reject(error)
-    pendingInit = null
-    for (const settler of pendingAttach.values()) settler.reject(error)
-    pendingAttach.clear()
-    for (const listener of [...fatalListeners]) listener(error)
+  function emit(event: EngineEvent): void {
+    const registered = listeners.get(event.type)
+    if (registered === undefined) return
+    // Copied before iterating: a listener that unsubscribes itself is ordinary, and mutating the
+    // set mid-iteration would skip its neighbour.
+    for (const listener of [...registered]) listener(event)
   }
 
-  worker.onmessage = ({ data }) => {
-    switch (data.type) {
+  /** Rejects everything outstanding with one reason. Used by `fatal` and by `terminate`. */
+  function refuseEverything(error: Error): void {
+    announceReady?.refuse(error)
+    for (const pending of attaching.values()) pending.refuse(error)
+    attaching.clear()
+    exporting?.refuse(error)
+    exporting = null
+  }
+
+  function received(event: EngineEvent): void {
+    switch (event.type) {
       case "ready":
-        pendingInit?.resolve(data.capabilities)
-        pendingInit = null
+        capabilities = event.capabilities
+        announceReady?.settle(event.capabilities)
         break
-      case "source-attached":
-        pendingAttach.get(data.sourceId)?.resolve(data)
-        pendingAttach.delete(data.sourceId)
+
+      case "source-attached": {
+        const pending = attaching.get(event.sourceId)
+        attaching.delete(event.sourceId)
+        pending?.settle(event)
         break
-      case "source-failed":
-        pendingAttach.get(data.sourceId)?.reject(new SourceRefusedError(data.sourceId, data.reason))
-        pendingAttach.delete(data.sourceId)
+      }
+
+      case "source-failed": {
+        const pending = attaching.get(event.sourceId)
+        attaching.delete(event.sourceId)
+        // The engine's own words about the user's file, not ours. A `source-failed` is a fact about
+        // the media and not a fault in the product, so it is a plain `Error` (FR-003).
+        pending?.refuse(new Error(event.reason))
         break
-      case "frame-rendered":
-        for (const listener of [...frameListeners]) listener(data)
+      }
+
+      case "export-done":
+        exporting?.settle({ status: "done", bytes: event.bytes })
+        exporting = null
         break
+
+      case "export-cancelled":
+        exporting?.settle({ status: "cancelled" })
+        exporting = null
+        break
+
+      case "export-failed":
+        exporting?.refuse(new Error(event.reason))
+        exporting = null
+        break
+
       case "fatal":
-        die(new EngineFatalError(data))
+        // Recorded before anything is rejected, so a listener woken by the rejection already sees
+        // the client in its failed state rather than in a state it is about to leave.
+        fatal = event
+        refuseEverything(new EngineFatalError(event))
         break
-      // `frames-dropped` is diagnostic by contract; audio and export events belong to the tasks
-      // that send the requests they answer.
+
       default:
+        // `frame-rendered`, `frames-dropped`, `audio-pcm`, `export-audio-ack`, `export-progress`:
+        // announcements, correlated to nothing, delivered to whoever is listening.
         break
     }
+
+    emit(event)
   }
 
-  // A worker that fails to load, or throws outside the worker's own catch, never sends `fatal`.
-  worker.onerror = (event) => {
-    die(
-      new EngineFatalError({ type: "fatal", reason: event.message || "The engine worker crashed." })
-    )
-  }
-  worker.onmessageerror = () => {
-    die(
-      new EngineFatalError({
-        type: "fatal",
-        reason: "The engine sent a message that could not be read.",
-      })
-    )
-  }
+  worker.addEventListener("message", (event: MessageEvent) => {
+    received(event.data as EngineEvent)
+  })
+
+  // A worker that dies before it can say `fatal` — a module that fails to load, a scope that is
+  // torn down — produces an `error` event here and nothing else. Left unhandled it is exactly the
+  // silence the protocol's invariant 5 is about, one layer further out, so it is turned into the
+  // `fatal` the worker would have sent if it had been able to.
+  worker.addEventListener("error", (event: ErrorEvent) => {
+    received({
+      type: "fatal",
+      reason: event.message || "the engine worker stopped without saying why",
+    })
+  })
+
+  // `init`, once, with the canvas transferred — after the listeners, so that a worker which fails
+  // during startup is heard rather than answering into nothing. The canvas belongs to the engine
+  // from this line onwards: the main thread cannot draw on it, size it, or transfer it again.
+  post(
+    {
+      type: "init",
+      canvas: options.canvas,
+      timebase: options.timebase,
+      frameSize: options.frameSize,
+    },
+    [options.canvas]
+  )
 
   return {
-    init(canvas, timebase, frameSize) {
-      if (fatal !== null) return Promise.reject(fatal)
-      if (pendingInit !== null) return Promise.reject(new Error("The engine is already starting."))
-      return new Promise((resolve, reject) => {
-        pendingInit = { resolve, reject }
-        post({ type: "init", canvas, timebase, frameSize }, [canvas])
-      })
-    },
+    ready,
+    capabilities: () => capabilities,
+    fatal: () => fatal,
 
     attachSource(sourceId, file) {
-      if (fatal !== null) return Promise.reject(fatal)
-      if (pendingAttach.has(sourceId)) {
-        return Promise.reject(new Error(`Source ${sourceId} is already being attached.`))
+      const stopped = unavailable()
+      if (stopped !== null) return Promise.reject(stopped)
+      if (attaching.has(sourceId)) {
+        // `attach-source` correlates by `sourceId` and carries nothing else, so two in flight for
+        // one Source would be settled by whichever reply arrived first — for whichever file. The
+        // protocol cannot express the question, so the client does not pretend it can.
+        return Promise.reject(
+          new Error(
+            `attachSource: the Source ${JSON.stringify(sourceId)} is already being attached; ` +
+              "the protocol correlates replies by Source id, so two at once cannot be told apart"
+          )
+        )
       }
-      return new Promise((resolve, reject) => {
-        pendingAttach.set(sourceId, { resolve, reject })
-        const message: AttachSourceMessage = { type: "attach-source", sourceId, file }
-        post(message)
+
+      return new Promise<SourceAttachedEvent>((settle, refuse) => {
+        attaching.set(sourceId, { settle, refuse })
+        post({ type: "attach-source", sourceId, file })
       })
     },
 
     detachSource(sourceId) {
+      attaching
+        .get(sourceId)
+        ?.refuse(new Error(`the Source ${JSON.stringify(sourceId)} was detached`))
+      attaching.delete(sourceId)
       post({ type: "detach-source", sourceId })
     },
 
@@ -193,30 +373,51 @@ export function createEngineClient(
       post({ type: "transport", state, fromFrame })
     },
 
-    onFrameRendered(listener) {
-      frameListeners.add(listener)
-      return () => frameListeners.delete(listener)
+    startExport(request, writable) {
+      const stopped = unavailable()
+      if (stopped !== null) return Promise.reject(stopped)
+      if (exporting !== null) {
+        return Promise.reject(
+          new Error("startExport: an export is already running; one at a time (spec assumption)")
+        )
+      }
+
+      return new Promise<ExportOutcome>((settle, refuse) => {
+        exporting = { settle, refuse }
+        post({ type: "export-start", ...request, writable }, [writable])
+      })
     },
 
-    onFatal(listener) {
-      if (fatal !== null) listener(fatal)
-      else fatalListeners.add(listener)
-      return () => fatalListeners.delete(listener)
+    sendExportAudioChunk(channels, startSample, final) {
+      // Transferred, not copied — a minute of stereo at 48 kHz is 23 MB, and copying it is the
+      // difference between an export that streams and one that grows. Buffers are de-duplicated
+      // because two channel views over one buffer would be transferred twice, which throws.
+      const buffers = [...new Set(channels.map((channel) => channel.buffer))]
+      post({ type: "export-audio-chunk", channels, startSample, final }, buffers as Transferable[])
     },
 
-    get fatal() {
-      return fatal
+    cancelExport() {
+      post({ type: "export-cancel" })
     },
 
-    terminate() {
+    on(type, listener) {
+      let registered = listeners.get(type)
+      if (registered === undefined) {
+        registered = new Set()
+        listeners.set(type, registered)
+      }
+      const erased = listener as (event: EngineEvent) => void
+      registered.add(erased)
+      return () => {
+        registered.delete(erased)
+      }
+    },
+
+    terminate(reason = "the Preview was closed") {
+      if (closed !== null) return
+      closed = reason
+      refuseEverything(new EngineClosedError(reason))
       worker.terminate()
-      const gone = new Error("The engine was shut down.")
-      pendingInit?.reject(gone)
-      pendingInit = null
-      for (const settler of pendingAttach.values()) settler.reject(gone)
-      pendingAttach.clear()
-      frameListeners.clear()
-      fatalListeners.clear()
     },
   }
 }

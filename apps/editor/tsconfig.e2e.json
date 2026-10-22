@@ -18,7 +18,14 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* The specs type against `../src/*`, and those modules reach each other through `@/`. Without
+       the same mapping here, a spec that imports a type from `src` fails to resolve what that
+       module imports — an error about the app, raised in the test project. */
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["e2e", "playwright.config.ts"]
 }

@@ -25,6 +25,11 @@ The main thread resolves the `FileSystemFileHandle` and its permission, then han
 The worker never touches handles or permissions. Replies `source-attached` with the metadata read
 from the file, or `source-failed` with a reason.
 
+Correlated by `sourceId` alone, so one Source cannot be attached twice concurrently — a second
+attach while the first is in flight is refused by the client rather than guessed at. Should
+concurrent attaches of one Source ever be wanted, this message needs a request id; a convention
+will not do.
+
 ### `detach-source`
 
 ```
@@ -129,11 +134,11 @@ The worker aborts encoding, closes the writable stream without finalizing, and r
 3. A `render-frame` request may be answered late or not at all, and the main thread must never
    block on one. Sound never waits for a Frame (FR-011, FR-012). Frame delivery is a stream, not
    a call — see `render-frame`.
-6. `init.timebase` and `init.frameSize` are a convenience for the first Render only. Every `Scene`
-   carries its own, and the Scene's win: `export-start` sends a frozen Scene that must be
-   self-contained (FR-019), so a Scene that leaned on a startup message would not be frozen in any
-   useful sense.
 4. Backpressure is explicit: export audio chunks are acknowledged, so the main thread cannot
    outrun the encoder.
 5. Errors are messages, not exceptions. An unhandled throw inside the worker must be caught at the
    boundary and forwarded as `fatal`, or it is invisible.
+6. `init.timebase` and `init.frameSize` are a convenience for the first Render only. Every `Scene`
+   carries its own, and the Scene's win: `export-start` sends a frozen Scene that must be
+   self-contained (FR-019), so a Scene that leaned on a startup message would not be frozen in any
+   useful sense.
