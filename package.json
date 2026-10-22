@@ -11,7 +11,7 @@
     "dev": "pnpm --filter @cutroom/editor dev",
     "build": "pnpm -r build",
     "preview": "pnpm --filter @cutroom/editor preview",
-    "test": "pnpm --filter @cutroom/model test",
+    "test": "pnpm --filter @cutroom/model --filter @cutroom/editor test",
     "test:e2e": "pnpm --filter @cutroom/editor test:e2e",
     "lint": "pnpm check:docs && eslint . && prettier --check .",
     "typecheck": "tsc -b && tsc -p scripts",
