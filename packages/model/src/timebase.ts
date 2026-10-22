@@ -281,3 +281,164 @@ export function frameToSourceTime(
     ),
   }
 }
+
+// ---------------------------------------------------------------------------------------------
+// A Source's own clock: ticks
+// ---------------------------------------------------------------------------------------------
+//
+// A container stores time as integers on a clock of its own — an MP4 track's timescale, say 30000
+// or 90000 ticks to the second. Those ticks are not Frames and never become Frames of the Project:
+// they are how a Source's own time (Principle II's exception) arrives, and the three functions
+// below are the only arithmetic done on them. `packages/engine` reads the clock and the tick
+// counts out of the file; what they mean as a duration or a Source Timebase is decided here.
+
+/** Validates a clock's resolution: a positive whole number of ticks to the second. */
+function assertTicksPerSecond(value: unknown, where: string): asserts value is number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new RangeError(
+      `${where}: ticksPerSecond must be a positive safe integer, got ${show(value)}`
+    )
+  }
+}
+
+/**
+ * Recovers the integer tick count that a time in seconds stands for, on a clock of
+ * `ticksPerSecond`.
+ *
+ * This is for a float that a demuxer computed as `ticks / ticksPerSecond` from an integer the
+ * container stored, so the integer is there to be recovered exactly: the rounding absorbs only the
+ * last-bit error of that one division and involves no rate. It is nevertheless a rounding of a time
+ * value, so it lives here and uses the module's one tie rule — nearest, an exact half going up
+ * (towards the later tick), which is `Math.round`.
+ *
+ * Unlike a Frame, a tick count may be negative: containers legitimately place a packet before
+ * zero (an MP4 edit list shifting B-frame pre-roll, for instance), and the caller measures spans
+ * between such packets. Only a non-finite input, or one whose tick count is beyond exact integers,
+ * is rejected.
+ */
+export function secondsToTicks(ticksPerSecond: number, seconds: number): number {
+  assertTicksPerSecond(ticksPerSecond, "secondsToTicks")
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    throw new RangeError(`secondsToTicks: seconds must be a finite number, got ${show(seconds)}`)
+  }
+
+  const ticks = Math.round(seconds * ticksPerSecond)
+  if (!Number.isSafeInteger(ticks)) {
+    throw new RangeError(
+      `secondsToTicks: ${seconds} seconds is ${ticks} ticks, beyond the range of exact integers`
+    )
+  }
+  // `Math.round(-0.5)` is −0; a tick count has no sign of zero.
+  return ticks + 0
+}
+
+/**
+ * A count of ticks on a clock of `ticksPerSecond`, as an exact ratio of seconds in lowest terms —
+ * how long a Source is, in its own timescale. 899 899 ticks of a 30000 clock is 899899/30000 s;
+ * 300 300 ticks of a 90000 clock is 1001/300 s. Zero ticks is 0/1.
+ */
+export function ticksToSeconds(ticksPerSecond: number, ticks: number): Rational {
+  assertTicksPerSecond(ticksPerSecond, "ticksToSeconds")
+  if (!Number.isSafeInteger(ticks) || ticks < 0) {
+    throw new RangeError(
+      `ticksToSeconds: ticks must be a non-negative safe integer, got ${show(ticks)}`
+    )
+  }
+
+  const numerator = BigInt(ticks)
+  const denominator = BigInt(ticksPerSecond)
+  const divisor = gcd(numerator, denominator)
+  return { numerator: Number(numerator / divisor), denominator: Number(denominator / divisor) }
+}
+
+/**
+ * The Timebase that `frames` Frames spanning `spanTicks` ticks of a `ticksPerSecond` clock imply:
+ *
+ *     timebase = frames × ticksPerSecond / spanTicks      (Frames per second, in lowest terms)
+ *
+ * This is how a Source Timebase is measured, since no container states one: count Frames over a
+ * span of the Source's own clock. 120 Frames over 120 120 ticks of a 30000 clock and over 360 360
+ * ticks of a 90000 clock are both exactly 30000/1001 — the clock's resolution cancels out, which is
+ * why the result must be reduced rather than reported as it was measured.
+ *
+ * The product is formed in exact integers, so a large clock cannot overflow it on the way to a
+ * reduced result that fits; only a reduced Timebase whose parts are themselves beyond exact
+ * integers is refused.
+ */
+export function timebaseFromTicks(
+  ticksPerSecond: number,
+  frames: number,
+  spanTicks: number
+): Timebase {
+  assertTicksPerSecond(ticksPerSecond, "timebaseFromTicks")
+  if (!Number.isSafeInteger(frames) || frames <= 0) {
+    throw new RangeError(
+      `timebaseFromTicks: frames must be a positive safe integer, got ${show(frames)}`
+    )
+  }
+  if (!Number.isSafeInteger(spanTicks) || spanTicks <= 0) {
+    throw new RangeError(
+      `timebaseFromTicks: spanTicks must be a positive safe integer, got ${show(spanTicks)}`
+    )
+  }
+
+  const numerator = BigInt(frames) * BigInt(ticksPerSecond)
+  const denominator = BigInt(spanTicks)
+  const divisor = gcd(numerator, denominator)
+  return {
+    numerator: toSafeNumber(numerator / divisor, "timebaseFromTicks", "Timebase numerator"),
+    denominator: toSafeNumber(denominator / divisor, "timebaseFromTicks", "Timebase denominator"),
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Timecode
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * A Frame as a person reads it: the wall-clock hour, minute and second in which it begins, and how
+ * many Frames into that second it is.
+ */
+export interface Timecode {
+  readonly hours: number
+  readonly minutes: number
+  /** 0 … 59. */
+  readonly seconds: number
+  /** Frames since the start of `seconds` — the first Frame starting at or after it is 0. */
+  readonly frames: number
+}
+
+/**
+ * The timecode of a Frame: where it begins on the clock, as `hours : minutes : seconds`, and its
+ * offset in Frames from the first Frame that begins in that second.
+ *
+ * **Wall-clock, not SMPTE.** The seconds are the real time at which the Frame begins. At an integer
+ * Timebase (25, 30) this is identical to SMPTE non-drop timecode. At 30000/1001 the two part
+ * company: non-drop timecode pretends there are exactly 30 Frames to the second and falls 3.6 s
+ * behind the clock every hour, and drop-frame timecode repairs that with a skipping rule defined
+ * only for 29.97 and 59.94. Neither is what the rest of the product shows — a Source's duration is
+ * real seconds, and so is what an exported file reports in a player — so the timecode is the
+ * clock, and a second at 30000/1001 simply holds 30 or 29 Frames as the arithmetic falls. `frames`
+ * is therefore always less than the number of Frames that begin inside its second.
+ *
+ * Both steps are exact integer division: the second is floor(frame / timebase), and the first
+ * Frame of that second is ceil(second × timebase) — the same count of Frames-starting-before-it
+ * that `framesForDuration` gives, so the two can never disagree about where a second begins.
+ */
+export function frameToTimecode(timebase: Timebase, frame: number): Timecode {
+  assertRatio(timebase, "frameToTimecode", "Timebase", 1)
+  assertFrame(frame, "frameToTimecode")
+
+  const rate = BigInt(timebase.numerator)
+  const perFrame = BigInt(timebase.denominator)
+  // Non-negative operands, so BigInt's truncating division is floor, and (a + b − 1) / b is ceil.
+  const second = (BigInt(frame) * perFrame) / rate
+  const firstFrameOfSecond = (second * rate + perFrame - 1n) / perFrame
+
+  return {
+    hours: Number(second / 3600n),
+    minutes: Number((second % 3600n) / 60n),
+    seconds: Number(second % 60n),
+    frames: Number(BigInt(frame) - firstFrameOfSecond),
+  }
+}

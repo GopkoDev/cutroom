@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { EngineCapabilities, EngineEvent, ToEngine } from "@cutroom/engine/protocol"
 
-import { EngineClosedError, EngineFatalError, startEngine } from "./index"
+import { EngineClosedError, EngineFatalError, UNANSWERED_FRAME_MS, startEngine } from "./index"
 
 // The real worker is exercised by the e2e specs. Here it is replaced by one that records what was
 // posted and answers only when told to, which is what the client's promises are actually about.
@@ -89,6 +89,103 @@ describe("streams", () => {
     stop()
     worker.answer(rendered(2))
     expect(seen).toEqual([1])
+  })
+})
+
+describe("the latest-wins guard over render-frame", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const rendered = (frame: number) =>
+    ({ type: "frame-rendered", frame, revision: 1 }) as unknown as EngineEvent
+  const dropped = { type: "frames-dropped", count: 1 } as EngineEvent
+  const framesPosted = (worker: FakeWorker) =>
+    worker.posted
+      .map((post) => post.message)
+      .filter((message) => message.type === "render-frame")
+      .map((message) => message.frame)
+
+  it("posts one request and holds the rest until it is answered, then posts only the newest", () => {
+    const { worker, client } = setup()
+    for (let frame = 1; frame <= 20; frame += 1) client.renderFrame(frame, "scrub")
+    expect(framesPosted(worker)).toEqual([1])
+
+    worker.answer(rendered(1))
+    expect(framesPosted(worker)).toEqual([1, 20])
+
+    worker.answer(rendered(20))
+    expect(framesPosted(worker)).toEqual([1, 20])
+  })
+
+  it("counts frames-dropped as an answer, since a request the worker cannot serve gets that", () => {
+    const { worker, client } = setup()
+    client.renderFrame(0, "scrub")
+    client.renderFrame(5, "scrub")
+    worker.answer(dropped)
+    expect(framesPosted(worker)).toEqual([0, 5])
+  })
+
+  it("posts again at once when nothing is in flight", () => {
+    const { worker, client } = setup()
+    client.renderFrame(3, "scrub")
+    worker.answer(rendered(3))
+    client.renderFrame(4, "scrub")
+    expect(framesPosted(worker)).toEqual([3, 4])
+  })
+
+  it("keeps a repeat of the Frame in flight, because a repeat means the picture changed", () => {
+    const { worker, client } = setup()
+    client.renderFrame(7, "scrub")
+    client.renderFrame(7, "scrub")
+    worker.answer(rendered(7))
+    expect(framesPosted(worker)).toEqual([7, 7])
+  })
+
+  it("lets a listener woken by the answer ask for the next Frame without being held", () => {
+    const { worker, client } = setup()
+    client.on("frame-rendered", (event) => {
+      if (event.frame === 1) client.renderFrame(2, "scrub")
+    })
+    client.renderFrame(1, "scrub")
+    worker.answer(rendered(1))
+    expect(framesPosted(worker)).toEqual([1, 2])
+  })
+
+  it("stops waiting for an answer that never comes, and a late one changes nothing", () => {
+    vi.useFakeTimers()
+    const { worker, client } = setup()
+    client.renderFrame(1, "scrub")
+    client.renderFrame(2, "scrub")
+    vi.advanceTimersByTime(UNANSWERED_FRAME_MS - 1)
+    expect(framesPosted(worker)).toEqual([1])
+
+    vi.advanceTimersByTime(1)
+    expect(framesPosted(worker)).toEqual([1, 2])
+
+    // Frame 1's answer, late: Frame 2 is still in flight and owes its own.
+    client.renderFrame(3, "scrub")
+    worker.answer(rendered(1))
+    expect(framesPosted(worker)).toEqual([1, 2, 3])
+  })
+
+  it("forgets what was waiting on a fatal or a terminate", () => {
+    vi.useFakeTimers()
+    const { worker, client } = setup()
+    client.renderFrame(1, "scrub")
+    client.renderFrame(2, "scrub")
+    worker.answer({ type: "fatal", reason: "GPU lost" })
+    worker.answer(rendered(1))
+    vi.runAllTimers()
+    expect(framesPosted(worker)).toEqual([1])
+
+    const other = setup()
+    other.client.renderFrame(1, "scrub")
+    other.client.renderFrame(2, "scrub")
+    other.client.terminate()
+    vi.runAllTimers()
+    expect(framesPosted(other.worker)).toEqual([1])
+    expect(vi.getTimerCount()).toBe(0)
   })
 })
 

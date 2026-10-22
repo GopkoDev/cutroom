@@ -15,6 +15,13 @@ frameToSampleIndex(timebase, sampleRate, frame): integer
 framesForDuration(timebase, duration): integer  // duration is an exact ratio, not a float
                                                 // counts Frames whose start is inside the media
 frameToSourceTime(timebase, sourceInPoint, frame): { numerator, denominator }
+frameToTimecode(timebase, frame): { hours, minutes, seconds, frames }
+                                                // wall-clock, not SMPTE; frames = offset in second
+
+// A Source's own clock — ticks of a container timescale, never Frames of the Project
+secondsToTicks(ticksPerSecond, seconds): integer  // recovers a stored integer; may be negative
+ticksToSeconds(ticksPerSecond, ticks): { numerator, denominator }
+timebaseFromTicks(ticksPerSecond, frames, spanTicks): Timebase  // measures a Source Timebase
 ```
 
 **Contract**
@@ -29,6 +36,8 @@ question differs, and each is stated once here and argued once, at its definitio
 | `secondsToFrame` | Nearest Frame. Frame n owns [n − ½, n + ½), so every instant belongs to exactly one Frame. Negative input is rejected. |
 | `frameToSampleIndex` | Nearest sample, computed from the absolute Frame and never accumulated, so error stays ≤ half a sample however long the Timeline. |
 | `framesForDuration` | Rounds **up**: a count of n means indices 0 … n − 1, and the last Frame still starts inside the media. Truncating discards a real Frame. |
+| `secondsToTicks` | Nearest tick, the same tie rule. It recovers an integer the container stored from a demuxer's `ticks / clock` float, so it absorbs one division's last-bit error and involves no rate. |
+| `frameToTimecode` | Exact, no tie to break: the second is floor(frame ÷ Timebase), and that second's first Frame is ceil(second × Timebase) — the same count `framesForDuration` gives. |
 
 - Where a container states how many Frames a Source actually holds, that fact beats
   `framesForDuration`, which is for audio and for expressing a Source's length in a Timebase it
@@ -36,7 +45,16 @@ question differs, and each is stated once here and argued once, at its definitio
 - `frameToSourceTime` stays rational the whole way, so a Source whose Timebase differs from the
   Project's is handled here and nowhere else. `packages/engine` calls it rather than doing the
   arithmetic itself (R7).
-- All functions are total: invalid input throws rather than returning a plausible number.
+- `frameToTimecode` is wall-clock: `seconds` is the real second a Frame begins in. At an integer
+  Timebase that equals SMPTE non-drop; at 30000/1001 a second holds 30 or 29 Frames as the
+  arithmetic falls, instead of drifting 3.6 s an hour (non-drop) or adopting drop-frame's
+  29.97-only skipping rule. Formatting it as `HH:MM:SS:FF` is the UI's job, not arithmetic.
+- The tick functions are how a Source's duration and Source Timebase are built (`packages/engine`
+  reads the clock and the ticks from Mediabunny and calls them, R7). They produce Source time —
+  Principle II's exception — and never a Frame of the Project's Timebase. Results are in lowest
+  terms, so 30000/1001 comes out the same from a 30000, 90000 or millisecond clock.
+- All functions are total: invalid input throws rather than returning a plausible number. The
+  error is a `RangeError` naming the function, the argument and the value.
 
 ## Document
 

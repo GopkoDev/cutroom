@@ -18,7 +18,7 @@ import {
 // debounced saver, and the saver writes to IndexedDB, which node does not have. Testing it against
 // a mock would test the mock — and the one property that matters most about the saver, that a tab
 // going away does not take a debounce interval of edits with it, only means anything against a real
-// store and a real `pagehide`.
+// store and a page that really unloads.
 //
 // Everything below reaches the store through the module the app imported, so an assertion about
 // state is also an assertion about what the screen is showing.
@@ -374,41 +374,63 @@ test("an edit the renderer cannot see does not cost the engine a repost", async 
   expect(revisions.afterClip).toBe(revisions.afterCreate + 1)
 })
 
-test("a closing tab does not take the last edits with it", async ({ page }) => {
+/** How many Sources `project-shell` has in storage, or -1 when it is not there. */
+async function storedSources(page: Page): Promise<number> {
+  return page.evaluate(async (projectsModule) => {
+    const projects = (await import(projectsModule)) as typeof ProjectStore
+    return (await projects.loadProject("project-shell"))?.sources.length ?? -1
+  }, PROJECT_STORE_MODULE)
+}
+
+/**
+ * A Project in storage with a gesture open on it that has done one thing nothing has written yet —
+ * the state a drag is in when the tab goes away. Returns when the gesture's step was made, so the
+ * caller can time what follows against the 500 ms debounce.
+ */
+async function midGesture(page: Page): Promise<number> {
   await openWithAProject(page)
+  // `create-project` is a finished command, written at once; wait for it so that what is at risk
+  // below is exactly the step the gesture has not committed.
+  await expect.poll(() => storedSources(page)).toBe(0)
 
-  const outcome = await page.evaluate(
-    async ({ specifier, projectsModule, importSource }) => {
-      const store = (await import(specifier)) as typeof EditorStore
-      const projects = (await import(projectsModule)) as typeof ProjectStore
-
-      // A fresh edit, so the debounce is running and nothing has been written.
-      store.useEditorStore.getState().run(importSource)
-      const started = Date.now()
-      const beforeHiding = await projects.loadProject("project-shell")
-
-      // What actually happens when a tab is closed. Nothing awaits it, because nothing can.
-      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }))
-
-      let stored: Awaited<ReturnType<typeof projects.loadProject>>
-      do {
-        await new Promise((settle) => setTimeout(settle, 10))
-        stored = await projects.loadProject("project-shell")
-      } while (stored === undefined && Date.now() - started < 3000)
-
-      return {
-        writtenBeforeHiding: beforeHiding !== undefined,
-        sourcesWritten: stored?.sources.length ?? -1,
-        elapsedMs: Date.now() - started,
-      }
-    },
-    { specifier: STORE_MODULE, projectsModule: PROJECT_STORE_MODULE, importSource: IMPORT_SOURCE }
+  await page.evaluate(
+    ({ specifier, importSource }) =>
+      import(specifier).then((store: typeof EditorStore) => {
+        store.useEditorStore.getState().beginTransaction("Drag")
+        store.useEditorStore.getState().run(importSource)
+      }),
+    { specifier: STORE_MODULE, importSource: IMPORT_SOURCE }
   )
+  const steppedAt = Date.now()
+  // Debounced, so nothing has been written: this is the whole reason the page needs a flush.
+  expect(await storedSources(page)).toBe(0)
+  return steppedAt
+}
 
-  // Nothing had been written: the saver debounces, which is the whole reason `flush` needs a caller.
-  expect(outcome.writtenBeforeHiding).toBe(false)
-  expect(outcome.sourcesWritten).toBe(1)
-  // Well inside the 500 ms debounce, so the write happened because `pagehide` asked for it and not
-  // because the timer would have fired anyway — which is the only way this assertion means anything.
-  expect(outcome.elapsedMs).toBeLessThan(400)
+// The two ways a page really goes away, rather than a `pagehide` dispatched at a page that stays
+// loaded — that version passed throughout while every real reload lost the write, because the
+// write it started was aborted when the document was torn down (see `saveProject`).
+
+test("a reload in the middle of a gesture does not take its edits with it", async ({ page }) => {
+  const steppedAt = await midGesture(page)
+
+  await page.reload()
+  // Well inside the debounce, so the write landed because the page's leaving asked for it and not
+  // because the timer fired first — which is the only way the assertion below means anything.
+  expect(Date.now() - steppedAt).toBeLessThan(500)
+
+  await page.waitForTimeout(1000)
+  expect(await storedSources(page)).toBe(1)
+})
+
+test("a closing tab does not take the last edits with it", async ({ page, context }) => {
+  const steppedAt = await midGesture(page)
+
+  await page.close()
+  expect(Date.now() - steppedAt).toBeLessThan(500)
+
+  const reopened = await context.newPage()
+  await reopened.goto("/")
+  await reopened.waitForTimeout(1000)
+  expect(await storedSources(reopened)).toBe(1)
 })

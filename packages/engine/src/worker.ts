@@ -21,6 +21,8 @@ import type { Scene } from "@cutroom/model"
 
 import { probeCapabilities } from "./capabilities"
 import { createSceneRenderer, type SceneRenderer } from "./compose/renderer"
+import { createScrub, type Scrub } from "./playback/scrub"
+import { attachSource, releaseSource } from "./sources/attach"
 import type {
   EngineEvent,
   InitMessage,
@@ -86,6 +88,9 @@ function fail(error: unknown): void {
 // ---------------------------------------------------------------------------------------------
 
 let renderer: SceneRenderer | null = null
+
+/** The Frame-request latch over `renderer`, made with the first `render-frame` that can be served. */
+let scrub: Scrub | null = null
 
 /**
  * The newest Scene the worker has been given, and its revision.
@@ -156,20 +161,23 @@ function replaceScene(message: SceneMessage): void {
  * of startup, not a fault — `frames-dropped` is the protocol's own channel for saying so, and it
  * is explicitly diagnostic and never surfaced as an error.
  *
- * There is no coalescing here yet, and its absence is deliberate rather than overlooked. FR-012's
- * rule — newer requests displace older ones instead of queueing them — only has anything to
- * displace once a Render can be in flight across an `await`, which is when decoding arrives
- * (T046). Compositing an empty stage returns within the same task, so a latch added now would be a
- * branch that could never be taken and could never be tested.
+ * Everything past that check is playback/scrub.ts: the Frame is rendered by random access, and a
+ * request that arrives while a Render is in flight waits behind it, displacing — and reporting as
+ * dropped — any older request already waiting (FR-012). `clock` requests take the same path for
+ * now: the streaming iterators `clock` is meant to continue arrive with playback, and until then a
+ * seek is the correct, merely slower, way to answer one.
  */
-function renderFrame(message: RenderFrameMessage): void {
+function renderFrame(message: RenderFrameMessage): Promise<void> {
   if (renderer === null || scene === null || sceneRevision === null) {
     send({ type: "frames-dropped", count: 1 })
-    return
+    return Promise.resolve()
   }
 
-  renderer.renderScene(scene, message.frame)
-  send({ type: "frame-rendered", frame: message.frame, revision: sceneRevision })
+  scrub ??= createScrub(renderer, {
+    rendered: (frame, revision) => send({ type: "frame-rendered", frame, revision }),
+    dropped: (count) => send({ type: "frames-dropped", count }),
+  })
+  return scrub.request({ scene, revision: sceneRevision, frame: message.frame })
 }
 
 /**
@@ -194,11 +202,20 @@ async function handle(message: ToEngine): Promise<void> {
       return
 
     case "render-frame":
-      renderFrame(message)
+      await renderFrame(message)
       return
 
     case "attach-source":
+      // Always answered: a file that cannot be a Source is `source-failed`, never a throw.
+      send(await attachSource(message))
+      return
+
     case "detach-source":
+      // No reply: the protocol has none, and a Source that was never attached is already detached.
+      // Its Clips render empty from the next Frame, because every sink re-reads the attachment.
+      releaseSource(message.sourceId)
+      return
+
     case "transport":
     case "export-start":
     case "export-audio-chunk":

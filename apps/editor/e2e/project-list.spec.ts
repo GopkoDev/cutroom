@@ -48,7 +48,7 @@ test("a Project opens on click, with its Timeline as it was", async ({ page }) =
 
   await expect(page.getByTestId("editor-shell")).toBeVisible()
   await expect(page.getByTestId("project-name")).toHaveText("Opening titles")
-  await expect(page.getByTestId("source-row")).toHaveText(["interview.mp4"])
+  await expect(page.getByTestId("source-name")).toHaveText(["interview.mp4"])
   await expect(page.getByTestId("timeline-duration")).toContainText("300 Frames")
 
   // And back again, which is the other half of "this is where the app lands with no Project open".

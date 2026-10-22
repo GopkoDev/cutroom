@@ -4,8 +4,12 @@ import {
   frameToSampleIndex,
   frameToSeconds,
   frameToSourceTime,
+  frameToTimecode,
   framesForDuration,
   secondsToFrame,
+  secondsToTicks,
+  ticksToSeconds,
+  timebaseFromTicks,
   type Rational,
   type Timebase,
 } from "../src/timebase"
@@ -343,6 +347,7 @@ describe("every function is total", () => {
     ["frameToSeconds", (timebase, frame) => frameToSeconds(timebase, frame)],
     ["frameToSampleIndex", (timebase, frame) => frameToSampleIndex(timebase, SAMPLE_RATE, frame)],
     ["frameToSourceTime", (timebase, frame) => frameToSourceTime(timebase, zeroInPoint, frame)],
+    ["frameToTimecode", (timebase, frame) => frameToTimecode(timebase, frame)],
   ]
 
   for (const [name, call] of callers) {
@@ -387,5 +392,246 @@ describe("every function is total", () => {
     expect(() => frameToSampleIndex(VIDEO, 0, 0)).toThrow(RangeError)
     expect(() => framesForDuration(VIDEO, { numerator: 1, denominator: 0 })).toThrow(RangeError)
     expect(() => frameToSourceTime(VIDEO, zeroInPoint, -1)).toThrow(RangeError)
+    expect(() => frameToTimecode(VIDEO, -1)).toThrow(RangeError)
+    expect(() => secondsToTicks(30_000, Number.NaN)).toThrow(RangeError)
+    expect(() => ticksToSeconds(30_000, -1)).toThrow(RangeError)
+    expect(() => timebaseFromTicks(30_000, 120, 0)).toThrow(RangeError)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// A Source's own clock
+// ---------------------------------------------------------------------------------------------
+
+/** The tick-clock functions share one argument that is not a Frame or a Timebase. */
+const tickCallers: [string, (ticksPerSecond: number) => unknown][] = [
+  ["secondsToTicks", (ticksPerSecond) => secondsToTicks(ticksPerSecond, 1)],
+  ["ticksToSeconds", (ticksPerSecond) => ticksToSeconds(ticksPerSecond, 1)],
+  ["timebaseFromTicks", (ticksPerSecond) => timebaseFromTicks(ticksPerSecond, 1, 1)],
+]
+
+describe("tick clocks are positive whole resolutions", () => {
+  for (const [name, call] of tickCallers) {
+    it(`${name} rejects a clock that is not a positive safe integer, naming itself`, () => {
+      expect(() => call(0)).toThrow(
+        new RegExp(`^${name}: ticksPerSecond must be a positive safe integer, got 0$`)
+      )
+      expect(() => call(-30_000)).toThrow(
+        /ticksPerSecond must be a positive safe integer, got -30000/
+      )
+      expect(() => call(29.97)).toThrow(/ticksPerSecond .* got 29.97/)
+      expect(() => call(Number.NaN)).toThrow(/ticksPerSecond .* got NaN/)
+      expect(() => call(2 ** 60)).toThrow(/ticksPerSecond/)
+    })
+  }
+})
+
+describe("secondsToTicks — recovering the integer a demuxer divided", () => {
+  it("recovers every tick of ten minutes on a 30000 clock and a 90000 clock exactly", () => {
+    // The float a demuxer hands over is ticks / clock, rounded once. Truncating `seconds × clock`
+    // instead of rounding it loses a tick wherever that division landed a hair low.
+    for (const clock of [30_000, 90_000]) {
+      for (let ticks = 0; ticks <= clock * 600; ticks += 1001) {
+        expect(secondsToTicks(clock, ticks / clock)).toBe(ticks)
+      }
+    }
+  })
+
+  it("rounds to the nearest tick, an exact half going up — the module's one tie rule", () => {
+    // On a clock of 2, a quarter second is exactly half a tick, and representable exactly.
+    expect(secondsToTicks(2, 0.25)).toBe(1)
+    expect(secondsToTicks(2, 0.75)).toBe(2)
+    expect(secondsToTicks(2, 0.2499)).toBe(0)
+    expect(secondsToTicks(2, 0.2501)).toBe(1)
+  })
+
+  it("accepts a timestamp before zero, which a container may legitimately store", () => {
+    expect(secondsToTicks(30_000, -1001 / 30_000)).toBe(-1001)
+    // Half up is towards the later tick on both sides of zero, and zero has no sign.
+    expect(secondsToTicks(2, -0.75)).toBe(-1)
+    expect(secondsToTicks(2, -0.25)).toBe(0)
+    expect(Object.is(secondsToTicks(2, -0.25), -0)).toBe(false)
+  })
+
+  it("rejects a time that is not a finite number, or whose ticks are not exact integers", () => {
+    expect(() => secondsToTicks(30_000, Number.NaN)).toThrow(
+      /^secondsToTicks: seconds must be a finite number, got NaN$/
+    )
+    expect(() => secondsToTicks(30_000, Number.NEGATIVE_INFINITY)).toThrow(/got -Infinity/)
+    expect(() => secondsToTicks(30_000, "1" as unknown as number)).toThrow(/got "1"/)
+    expect(() => secondsToTicks(90_000, 1e300)).toThrow(
+      /^secondsToTicks: 1e\+300 seconds is .* ticks, beyond the range of exact integers$/
+    )
+  })
+})
+
+describe("ticksToSeconds", () => {
+  it("is the exact ratio, in lowest terms", () => {
+    // The 29.97 fixture: 899 Frames of 1001 ticks on a 30000 clock.
+    expect(ticksToSeconds(30_000, 899_899)).toEqual({ numerator: 899_899, denominator: 30_000 })
+    expect(ticksToSeconds(90_000, 300_300)).toEqual({ numerator: 1001, denominator: 300 })
+    expect(ticksToSeconds(90_000, 90_000)).toEqual({ numerator: 1, denominator: 1 })
+    expect(ticksToSeconds(1000, 4004)).toEqual({ numerator: 1001, denominator: 250 })
+  })
+
+  it("names zero ticks 0/1, whatever the clock", () => {
+    expect(ticksToSeconds(90_000, 0)).toEqual({ numerator: 0, denominator: 1 })
+  })
+
+  it("rejects a tick count that is not a whole non-negative number", () => {
+    expect(() => ticksToSeconds(30_000, -1)).toThrow(
+      /^ticksToSeconds: ticks must be a non-negative safe integer, got -1$/
+    )
+    expect(() => ticksToSeconds(30_000, 1.5)).toThrow(/ticks .* got 1.5/)
+    expect(() => ticksToSeconds(30_000, Number.NaN)).toThrow(/ticks .* got NaN/)
+    expect(() => ticksToSeconds(30_000, 2 ** 60)).toThrow(
+      /ticks must be a non-negative safe integer/
+    )
+  })
+})
+
+describe("timebaseFromTicks — measuring a Source Timebase", () => {
+  it("gives 30000/1001 from 120 Frames whatever the clock, because the clock cancels", () => {
+    expect(timebaseFromTicks(30_000, 120, 120_120)).toEqual(NTSC)
+    expect(timebaseFromTicks(90_000, 120, 360_360)).toEqual(NTSC)
+    // A millisecond clock (Matroska's usual): 120 Frames of 29.97 last exactly 4004 ms.
+    expect(timebaseFromTicks(1000, 120, 4004)).toEqual(NTSC)
+  })
+
+  it("keeps the other NTSC rates and the integer rates exact", () => {
+    expect(timebaseFromTicks(1000, 120, 5005)).toEqual({ numerator: 24_000, denominator: 1001 })
+    expect(timebaseFromTicks(1000, 120, 2002)).toEqual({ numerator: 60_000, denominator: 1001 })
+    expect(timebaseFromTicks(90_000, 120, 450_000)).toEqual(FILM)
+    expect(timebaseFromTicks(30_000, 120, 120_000)).toEqual(VIDEO)
+  })
+
+  it("forms the product exactly, so a fine clock cannot overflow a result that fits", () => {
+    // 120 × 2^50 is past Number.MAX_SAFE_INTEGER, but the reduced Timebase is 30/1.
+    expect(timebaseFromTicks(2 ** 50, 120, 2 ** 52)).toEqual(VIDEO)
+  })
+
+  it("refuses a reduced Timebase that cannot be represented exactly", () => {
+    expect(() => timebaseFromTicks(Number.MAX_SAFE_INTEGER, 2, 1)).toThrow(
+      /^timebaseFromTicks: Timebase numerator is 18014398509481982, beyond Number.MAX_SAFE_INTEGER/
+    )
+  })
+
+  it("rejects a Frame count or a span that is not a positive whole number", () => {
+    expect(() => timebaseFromTicks(30_000, 0, 1001)).toThrow(
+      /^timebaseFromTicks: frames must be a positive safe integer, got 0$/
+    )
+    expect(() => timebaseFromTicks(30_000, 1.5, 1001)).toThrow(/frames .* got 1.5/)
+    expect(() => timebaseFromTicks(30_000, 120, 0)).toThrow(
+      /^timebaseFromTicks: spanTicks must be a positive safe integer, got 0$/
+    )
+    expect(() => timebaseFromTicks(30_000, 120, -120_120)).toThrow(/spanTicks .* got -120120/)
+    expect(() => timebaseFromTicks(30_000, 120, 1001.5)).toThrow(/spanTicks .* got 1001.5/)
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Timecode
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * The timecode derived independently, by search rather than by formula: the second is the largest
+ * whole s with s seconds at or before the Frame's start, and the Frame offset counts the Frames
+ * between the first one starting at or after s and this one.
+ */
+const searchedTimecode = (timebase: Timebase, frame: number) => {
+  const startsAtOrAfter = (f: number, s: number) =>
+    BigInt(f) * BigInt(timebase.denominator) >= BigInt(s) * BigInt(timebase.numerator)
+  let second = 0
+  while (startsAtOrAfter(frame, second + 1)) second += 1
+  let first = frame
+  while (first > 0 && startsAtOrAfter(first - 1, second)) first -= 1
+  return {
+    hours: Math.floor(second / 3600),
+    minutes: Math.floor((second % 3600) / 60),
+    seconds: second % 60,
+    frames: frame - first,
+  }
+}
+
+describe("frameToTimecode — wall-clock, not SMPTE", () => {
+  it("starts the Timeline at zero", () => {
+    expect(frameToTimecode(NTSC, 0)).toEqual({ hours: 0, minutes: 0, seconds: 0, frames: 0 })
+  })
+
+  it("lands an exact second boundary on Frame 0 of that second, at integer and NTSC rates", () => {
+    expect(frameToTimecode(VIDEO, 30)).toEqual({ hours: 0, minutes: 0, seconds: 1, frames: 0 })
+    expect(frameToTimecode(VIDEO, 29)).toEqual({ hours: 0, minutes: 0, seconds: 0, frames: 29 })
+    // 1001 s at 30000/1001 is exactly Frame 30 000.
+    expect(frameToTimecode(NTSC, 30_000)).toEqual({ hours: 0, minutes: 16, seconds: 41, frames: 0 })
+  })
+
+  it("begins a second at the first Frame starting at or after it — a ceiling, not a rounding", () => {
+    // Second 1000 falls at Frame 29 970.03: Frame 29 970 starts before it, 29 971 is its first.
+    expect(frameToTimecode(NTSC, 29_970)).toEqual({
+      hours: 0,
+      minutes: 16,
+      seconds: 39,
+      frames: 29,
+    })
+    expect(frameToTimecode(NTSC, 29_971)).toEqual({ hours: 0, minutes: 16, seconds: 40, frames: 0 })
+    expect(frameToTimecode(NTSC, 29_999)).toEqual({
+      hours: 0,
+      minutes: 16,
+      seconds: 40,
+      frames: 28,
+    })
+  })
+
+  it("stays on the clock at 30000/1001 where non-drop timecode falls 3.6 s behind per hour", () => {
+    expect(frameToTimecode(NTSC, 107_892)).toEqual({
+      hours: 0,
+      minutes: 59,
+      seconds: 59,
+      frames: 29,
+    })
+    expect(frameToTimecode(NTSC, 107_893)).toEqual({ hours: 1, minutes: 0, seconds: 0, frames: 0 })
+  })
+
+  it("agrees with an independent search for every Frame of the first minute at 29.97 and 24", () => {
+    for (const timebase of [NTSC, FILM]) {
+      for (let frame = 0; frame < 1800; frame += 1) {
+        expect(frameToTimecode(timebase, frame)).toEqual(searchedTimecode(timebase, frame))
+      }
+    }
+  })
+
+  it("never offsets a Frame as far as the number of Frames starting inside its second", () => {
+    for (let frame = 0; frame < 30_000; frame += 1) {
+      const { frames } = frameToTimecode(NTSC, frame)
+      expect(frames).toBeGreaterThanOrEqual(0)
+      expect(frames).toBeLessThan(30)
+    }
+  })
+
+  it("puts a second's first Frame exactly where framesForDuration counts it", () => {
+    for (let second = 0; second < 2000; second += 7) {
+      const first = framesForDuration(NTSC, { numerator: second, denominator: 1 })
+      expect(frameToTimecode(NTSC, first).frames).toBe(0)
+      if (first > 0) expect(frameToTimecode(NTSC, first - 1).frames).toBeGreaterThan(0)
+    }
+  })
+
+  it("counts hours past a day rather than wrapping", () => {
+    expect(frameToTimecode(VIDEO, 30 * 3600 * 25 + 30 * 61 + 7)).toEqual({
+      hours: 25,
+      minutes: 1,
+      seconds: 1,
+      frames: 7,
+    })
+  })
+
+  it("stays exact at the far end of the Frame range", () => {
+    // 2^53 − 1 Frames at 1/1 is 2^53 − 1 seconds; a float division would already have rounded.
+    const { hours, minutes, seconds, frames } = frameToTimecode(
+      { numerator: 1, denominator: 1 },
+      Number.MAX_SAFE_INTEGER
+    )
+    expect(hours * 3600 + minutes * 60 + seconds).toBe(Number.MAX_SAFE_INTEGER)
+    expect(frames).toBe(0)
   })
 })

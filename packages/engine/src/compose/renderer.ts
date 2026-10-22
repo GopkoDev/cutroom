@@ -12,7 +12,9 @@
 
 import { Container, DOMAdapter, WebWorkerAdapter, autoDetectRenderer } from "pixi.js"
 
-import type { Frame, PixelSize, Scene } from "@cutroom/model"
+import type { PixelSize, Scene } from "@cutroom/model"
+
+import { createSceneClipSprite, type ClipPicture, type SceneClipSprite } from "./scene-clip"
 
 // Before anything at all is constructed — which is why this is a module side effect rather than the
 // first line of `createSceneRenderer`.
@@ -51,11 +53,20 @@ export interface SceneRenderer {
   /**
    * Composites one Frame of a Scene onto the canvas, replacing whatever was there.
    *
+   * `pictures` are the decoded pictures of the SceneClips that cover this Frame and have one, in
+   * the Scene's back-to-front order; whoever decoded them (playback/scrub.ts) has already decided
+   * which Clips those are. A Clip with no picture here is not drawn, and nothing else is either —
+   * so a Frame no Clip covers composites to the empty stage, black, rather than to whatever the
+   * last Frame showed (FR-008, T047).
+   *
+   * The pictures are canvases on loan from their sinks. They are uploaded to the GPU during this
+   * call and may be handed back as soon as it returns.
+   *
    * The canvas is resized first if the Scene asks for a different frame size. The Scene is
    * authoritative about that and the `init` message is not: an export carries its own frozen Scene
    * (FR-019), and the Project's frame size can have changed since the worker started.
    */
-  renderScene(scene: Scene, frame: Frame): void
+  renderScene(scene: Scene, pictures: readonly ClipPicture[]): void
 
   /** Releases the GPU context. */
   destroy(): void
@@ -97,32 +108,54 @@ export async function createSceneRenderer(
   })
 
   // The root of the scene graph, kept for the lifetime of the renderer. Rebuilding it per Frame
-  // would throw away the per-Clip render state — a texture, a sink — that `SceneClip.clipId` exists
-  // to let the worker keep across Scene revisions.
+  // would throw away the per-Clip render state — a texture — that `SceneClip.clipId` exists to let
+  // the worker keep across Scene revisions.
   const stage = new Container()
+
+  // One sprite per SceneClip that was drawn in the last Frame, by `clipId`. A Clip that is not
+  // drawn loses its sprite and with it its GPU texture: its sink is dropped at the same moment
+  // (canvas-sink.ts `retainSinks`), so the canvas the texture wraps would not come back anyway.
+  const sprites = new Map<string, SceneClipSprite>()
 
   return {
     name: renderer.name,
 
-    renderScene(scene: Scene, frame: Frame): void {
+    renderScene(scene: Scene, pictures: readonly ClipPicture[]): void {
       if (renderer.width !== scene.frameSize.width || renderer.height !== scene.frameSize.height) {
         renderer.resize(scene.frameSize.width, scene.frameSize.height)
       }
 
-      // Nothing is added to the stage yet, and with no Sources attached that is the correct
-      // picture rather than a gap: data-model.md says a Clip whose Source is unreachable stays in
-      // the Scene and renders empty, and a worker that has been sent no `attach-source` has no
-      // reachable Source for any Clip. Decoding and the Sprite per visible Clip arrive with T046;
-      // `frame` is the parameter they select on, and it is in the signature now because the
-      // protocol puts it there — a Frame request is answered by this call or by nothing.
-      void frame
+      // The stage is re-populated in full each Frame rather than patched: the order of `pictures`
+      // is the draw order, and re-adding in that order is the whole of keeping it — a Clip that
+      // moved between Tracks, or one that stopped covering the Frame, needs no special case.
+      stage.removeChildren()
+      const drawn = new Set<string>()
+      for (const picture of pictures) {
+        let sprite = sprites.get(picture.clipId)
+        if (sprite === undefined) {
+          sprite = createSceneClipSprite()
+          sprites.set(picture.clipId, sprite)
+        }
+        sprite.show(picture)
+        stage.addChild(sprite.sprite)
+        drawn.add(picture.clipId)
+      }
+      for (const [clipId, sprite] of sprites) {
+        if (!drawn.has(clipId)) {
+          sprite.destroy()
+          sprites.delete(clipId)
+        }
+      }
 
       // `clearBeforeRender` makes this the clear as well as the composite: whatever the previous
-      // Frame left is gone before this one is drawn, so a Frame is never a picture of two Frames.
+      // Frame left is gone before this one is drawn, so a Frame is never a picture of two Frames —
+      // and a Frame with no pictures is the opaque black background and nothing else.
       renderer.render(stage)
     },
 
     destroy(): void {
+      for (const sprite of sprites.values()) sprite.destroy()
+      sprites.clear()
       stage.destroy()
       renderer.destroy()
     },

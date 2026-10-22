@@ -241,9 +241,11 @@ Exporting requirements it belongs to rather than in numeric order at the end.
 
 ## Assumptions
 
-- **One Clip, no trimming.** This slice places the whole Source as one Clip. Trimming, moving,
-  splitting and multiple Clips or Tracks are out of scope; the Timeline exists to prove the model
-  end to end, not yet to edit with.
+- **One Clip per Source, no trimming.** This slice places each imported Source whole, as one
+  Clip: the first at Frame 0 of an empty Project (FR-005), each later one where the first video
+  Track ends, so a Source whose Timebase differs from the Project's can be seen and tested.
+  Trimming, moving, splitting and multiple Tracks are out of scope; the Timeline exists to prove
+  the model end to end, not yet to edit with.
 - **Video files only.** Audio-only files, images, text, effects and transitions are out of scope
   and are refused rather than partially handled.
 - **The Project adopts the first Source's Timebase and picture size** as its own Timebase and

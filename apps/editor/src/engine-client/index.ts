@@ -16,6 +16,26 @@
 // this in as many words; it is repeated here because the mistake is invisible until a long session
 // runs out of memory.
 //
+// **One `render-frame` in flight, and the newest one waiting (FR-012, T049).** A Playhead dragged
+// across the Timeline asks for a Frame on every pointer move, far faster than a seek can answer.
+// The worker coalesces what reaches it (playback/scrub.ts), but everything posted still crosses
+// the boundary, is structured-cloned and sits in the worker's queue. So the client holds back too:
+// it posts one request, and until the worker has answered — `frame-rendered` or `frames-dropped`,
+// one of which every request gets — later requests overwrite a single waiting slot instead of
+// being posted. The answer posts whatever is waiting, which is the newest Frame asked for. The two
+// latches are halves of one rule rather than two copies of it: this one keeps the channel to one
+// message, the worker's keeps its decoders to one Render whatever arrives (and it still answers
+// anything that gets past this one, a Frame requested before the first Scene included).
+//
+// The client drops a request it never posts without saying so. `frames-dropped` is the worker's
+// word for Frames it was asked for; a request superseded here was never asked of anyone.
+//
+// Invariant 3 allows a request to go unanswered, so the client must not wait for an answer
+// forever: an answer that has not come within `UNANSWERED_FRAME_MS` stops counting, and the
+// waiting request is posted anyway. That is a safety valve, not the mechanism — today every
+// request is answered — and opening it is harmless, because the worker's own latch absorbs the
+// extra request.
+//
 // **A `fatal` settles everything that was waiting.** The worker forwards every throw as a `fatal`
 // and leaves itself running, because whether to replace it is the main thread's decision. What the
 // main thread must not do is keep waiting: an `attachSource` promise pending across a `fatal` never
@@ -142,6 +162,9 @@ export interface EngineClient {
    * A stream, not a call. The request may be superseded and never answered (FR-012), so there is
    * nothing here to await and nothing that could time out. Listen for `frame-rendered` to learn
    * what the Preview is actually showing, and for `frames-dropped` to learn what it is not.
+   *
+   * Latest wins on this side too: while one request is unanswered, later ones are held, each
+   * replacing the last, and only the newest is posted when the answer comes.
    */
   renderFrame(frame: Frame, reason: "scrub" | "clock"): void
 
@@ -176,6 +199,20 @@ export interface EngineClient {
   terminate(reason?: string): void
 }
 
+/**
+ * How long a `render-frame` may go unanswered before the client stops holding later ones behind it.
+ *
+ * Long enough that a slow seek — a long-GOP Source, a 4K decode — is never mistaken for a lost
+ * request, short enough that a request that really was lost costs one stutter and not the Preview.
+ */
+export const UNANSWERED_FRAME_MS = 2000
+
+/** A Frame asked for but not yet posted, because another is in flight. */
+interface FrameWanted {
+  readonly frame: Frame
+  readonly reason: "scrub" | "clock"
+}
+
 /** One request waiting for the reply the protocol promises it. */
 interface Pending<T> {
   readonly settle: (value: T) => void
@@ -200,6 +237,11 @@ export function startEngine(options: EngineClientOptions): EngineClient {
   let closed: string | null = null
   let exporting: Pending<ExportOutcome> | null = null
   let announceReady: Pending<EngineCapabilities> | null = null
+
+  // The latest-wins guard over `render-frame`: whether one is posted and unanswered (as the timer
+  // that gives up on it), and the newest request held back behind it.
+  let frameInFlight: ReturnType<typeof setTimeout> | null = null
+  let frameWaiting: FrameWanted | null = null
 
   const ready = new Promise<EngineCapabilities>((settle, refuse) => {
     announceReady = { settle, refuse }
@@ -236,8 +278,38 @@ export function startEngine(options: EngineClientOptions): EngineClient {
     for (const listener of [...registered]) listener(event)
   }
 
+  /** Posts a `render-frame` and holds every later one back until it is answered. */
+  function postFrame(wanted: FrameWanted): void {
+    if (unavailable() !== null) return
+    frameInFlight = setTimeout(frameAnswered, UNANSWERED_FRAME_MS)
+    post({ type: "render-frame", frame: wanted.frame, reason: wanted.reason })
+  }
+
+  /**
+   * The request in flight was answered, or has been given up on: post the newest one waiting.
+   *
+   * An answer arriving when nothing is in flight — one given up on that turned up late — changes
+   * nothing; the request in flight now is a different one and still owes its own answer.
+   */
+  function frameAnswered(): void {
+    if (frameInFlight === null) return
+    clearTimeout(frameInFlight)
+    frameInFlight = null
+    const next = frameWaiting
+    frameWaiting = null
+    if (next !== null) postFrame(next)
+  }
+
+  /** Forgets every Frame request. Nothing will be posted again, so nothing may be waiting. */
+  function forgetFrames(): void {
+    if (frameInFlight !== null) clearTimeout(frameInFlight)
+    frameInFlight = null
+    frameWaiting = null
+  }
+
   /** Rejects everything outstanding with one reason. Used by `fatal` and by `terminate`. */
   function refuseEverything(error: Error): void {
+    forgetFrames()
     announceReady?.refuse(error)
     for (const pending of attaching.values()) pending.refuse(error)
     attaching.clear()
@@ -283,6 +355,14 @@ export function startEngine(options: EngineClientOptions): EngineClient {
         exporting = null
         break
 
+      case "frame-rendered":
+      case "frames-dropped":
+        // Every `render-frame` is answered by exactly one of these, and the guard keeps one in
+        // flight, so either is the answer to it. Settled before listeners hear it, so a listener
+        // that asks for another Frame is not held behind the one just answered.
+        frameAnswered()
+        break
+
       case "fatal":
         // Recorded before anything is rejected, so a listener woken by the rejection already sees
         // the client in its failed state rather than in a state it is about to leave.
@@ -291,7 +371,7 @@ export function startEngine(options: EngineClientOptions): EngineClient {
         break
 
       default:
-        // `frame-rendered`, `frames-dropped`, `audio-pcm`, `export-audio-ack`, `export-progress`:
+        // `audio-pcm`, `export-audio-ack`, `export-progress`:
         // announcements, correlated to nothing, delivered to whoever is listening.
         break
     }
@@ -366,7 +446,11 @@ export function startEngine(options: EngineClientOptions): EngineClient {
     },
 
     renderFrame(frame, reason) {
-      post({ type: "render-frame", frame, reason })
+      if (unavailable() !== null) return
+      // Not deduplicated against the Frame in flight: asking for the same Frame again is how the
+      // shell says the picture changed without the Scene changing (a Source attached or detached).
+      if (frameInFlight === null) postFrame({ frame, reason })
+      else frameWaiting = { frame, reason }
     },
 
     setTransport(state, fromFrame) {

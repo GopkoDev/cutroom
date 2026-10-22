@@ -23,7 +23,18 @@
 // Keeping the engine's picture of the Timeline current, and no more. It posts a `Scene` when the
 // store says the picture changed, asks for the Frame under the Playhead, and shows what the engine
 // says it drew — which for an empty Project is a black raster at the Project's frame size, the
-// Phase 2 checkpoint. Decoding, playback and the Timeline's own drawing arrive with US1 and US2.
+// Phase 2 checkpoint. The panels around the Preview are their own components: the Source list
+// (`SourcesPanel`), the Timeline (`Timeline`), the top bar with the timecode (`TopBar`) and the
+// prompt for Offline Sources (`RelinkPrompt`).
+//
+// It also owns the one Source status tracker (T051), because the tracker's lifetime is the
+// engine's: attachments are per worker, so a tracker that outlived its engine would believe Sources
+// were attached to a worker that no longer exists. The three occasions on which status is derived
+// again are wired here — the Project being opened, the window regaining focus, and a read failing
+// mid-session (the engine's `source-failed` for a Source already attached, and a check of the
+// Linked Sources each time the Playhead moves). A status change asks for the Frame again, so a
+// Source that goes Offline empties the Preview at once and one that comes back fills it, with no
+// edit to the Scene either way.
 //
 // A `fatal` from the engine is shown in the Preview's place. The alternative is the failure ADR
 // 0003 names: the canvas belongs to the worker, so a dead worker and a still picture look
@@ -33,9 +44,14 @@ import { useEffect, useRef, useState } from "react"
 
 import type { PixelSize, Timebase } from "@cutroom/model"
 
-import { Button } from "@/components/ui/button"
 import { startEngine, type EngineClient } from "@/engine-client"
-import { canRedo, canUndo, useEditorStore } from "@/store"
+import { useEditorStore } from "@/store"
+import { createSourceStatusTracker, type SourceStatusTracker } from "@/store/source-status"
+
+import { RelinkPrompt } from "./RelinkPrompt"
+import { SourcesPanel } from "./SourcesPanel"
+import { Timeline } from "./Timeline"
+import { TopBar } from "./TopBar"
 
 /**
  * What the engine is initialised with before any Project exists.
@@ -99,7 +115,7 @@ function releaseSession(element: HTMLCanvasElement): void {
   }, 0)
 }
 
-/** Frames as a person reads them, without pretending to be the timecode of T050. */
+/** The Playhead as a Frame index. The timecode beside it is the top bar's (T050). */
 function frameLabel(frame: number): string {
   return `Frame ${frame}`
 }
@@ -110,15 +126,12 @@ export function EditorLayout() {
   const sceneRevision = useEditorStore((state) => state.sceneRevision)
   const playheadFrame = useEditorStore((state) => state.playheadFrame)
   const engineFatal = useEditorStore((state) => state.engineFatal)
-  const undoable = useEditorStore(canUndo)
-  const redoable = useEditorStore(canRedo)
-  const undo = useEditorStore((state) => state.undo)
-  const redo = useEditorStore((state) => state.redo)
-  const closeProject = useEditorStore((state) => state.closeProject)
+  const sourceStatus = useEditorStore((state) => state.sourceStatus)
   const reportEngineFatal = useEditorStore((state) => state.reportEngineFatal)
 
   const previewRef = useRef<HTMLCanvasElement>(null)
   const [engine, setEngine] = useState<EngineClient | null>(null)
+  const [tracker, setTracker] = useState<SourceStatusTracker | null>(null)
   const [renderer, setRenderer] = useState<string | null>(null)
   const [shown, setShown] = useState<{ frame: number; revision: number } | null>(null)
 
@@ -153,6 +166,9 @@ export function EditorLayout() {
     }
 
     setEngine(client)
+    // The tracker lives exactly as long as this engine: attachments are per worker (T051).
+    const statusTracker = createSourceStatusTracker({ store: useEditorStore, engine: client })
+    setTracker(statusTracker)
     const stopWatchingFrames = client.on("frame-rendered", (event) => {
       setShown({ frame: event.frame, revision: event.revision })
     })
@@ -171,85 +187,82 @@ export function EditorLayout() {
     return () => {
       stopWatchingFrames()
       stopWatchingFatal()
+      statusTracker.dispose()
       releaseSession(element)
     }
   }, [initialSize, reportEngineFatal])
 
+  // When Source status is derived again (T051). The tracker itself is made and disposed with the
+  // engine, above; this wires the occasions to it.
+  useEffect(() => {
+    if (engine === null || tracker === null) return
+    const statusTracker = tracker
+
+    // Occasion 1, the Project being opened. A Project already in the store when the engine starts is
+    // one opened from the list; a new Project has no Sources yet, so this is a no-op for it, and its
+    // first Source is marked by the import that brings it in.
+    void statusTracker.checkAll()
+
+    // Occasion 2, the window regaining focus — the user coming back from renaming the file.
+    const onFocus = () => {
+      void statusTracker.checkAll()
+    }
+    window.addEventListener("focus", onFocus)
+
+    // Occasion 3, a read failing mid-session. A `source-failed` for a Source being attached is that
+    // attach's own answer and is handled by whoever asked; any other is a read that failed later.
+    const stopWatchingFailures = engine.on("source-failed", (event) => {
+      if (!statusTracker.isAttaching(event.sourceId)) {
+        statusTracker.readFailed(event.sourceId, event.reason)
+      }
+    })
+    // And the check that does not wait for the worker to fail: every Playhead move asks whether the
+    // Linked Sources' files are still there, so a vanished file goes Offline on the next Frame.
+    const stopWatchingPlayhead = useEditorStore.subscribe((state, previous) => {
+      if (state.playheadFrame !== previous.playheadFrame) void statusTracker.verifyLinked()
+    })
+
+    return () => {
+      window.removeEventListener("focus", onFocus)
+      stopWatchingFailures()
+      stopWatchingPlayhead()
+    }
+  }, [engine, tracker])
+
   // The engine's picture of the Timeline, kept current. Posting the Scene and asking for the Frame
   // are one step deliberately: a Scene nobody rendered afterwards leaves the Preview showing the
-  // previous one, which is indistinguishable from an edit that did nothing.
+  // previous one, which is indistinguishable from an edit that did nothing. `sourceStatus` is a
+  // reason to ask again without a new Scene: a Source attached or detached changes the picture
+  // and not the Timeline, and a Scene the worker already holds is ignored on repost.
+  //
+  // This is the only place in the editor that asks for a Frame, and it is how the Playhead reaches
+  // the engine (T049): a drag moves `playheadFrame`, this effect asks for the Frame under it with
+  // `scrub`, and the client's latest-wins guard keeps a fast drag to one request in flight. The
+  // Timeline itself only ever calls `setPlayhead`; a second caller here would be a second opinion
+  // about which Frame the Preview should show.
+  //
+  // `renderer` is a reason to ask again too: it is set when the engine answers `ready`, and a Frame
+  // asked for before then is answered `frames-dropped`. A Project reopened with every Source Offline
+  // changes nothing else afterwards, so without it the Preview would wait for the Playhead to move.
   useEffect(() => {
     if (engine === null || scene === null) return
     engine.postScene(sceneRevision, scene)
     engine.renderFrame(playheadFrame, "scrub")
-  }, [engine, scene, sceneRevision, playheadFrame])
-
-  const sources = project?.sources ?? []
-  const durationFrames = project?.timeline.durationFrames ?? 0
+  }, [engine, scene, sceneRevision, playheadFrame, sourceStatus, renderer])
 
   return (
     <div data-testid="editor-shell" className="flex h-svh flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center gap-3 border-b px-3 py-2">
-        <Button variant="ghost" size="sm" onClick={() => void closeProject()}>
-          Projects
-        </Button>
-        <h1 data-testid="project-name" className="truncate text-sm font-medium">
-          {project?.name ?? "New Project"}
-        </h1>
-        <div className="ml-auto flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="undo"
-            disabled={!undoable}
-            onClick={() => {
-              undo()
-            }}
-          >
-            Undo
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            data-testid="redo"
-            disabled={!redoable}
-            onClick={() => {
-              redo()
-            }}
-          >
-            Redo
-          </Button>
-        </div>
-      </header>
+      <TopBar />
 
       <div className="flex min-h-0 flex-1">
-        <section
-          data-testid="sources-panel"
-          aria-label="Sources"
-          className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto border-r p-3"
-        >
-          <h2 className="text-xs font-medium text-muted-foreground">Sources</h2>
-          {sources.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              Nothing here yet. Bringing a video in is what gives this Project its frame size and
-              its Timebase.
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-1 text-xs">
-              {sources.map((source) => (
-                <li key={source.id} data-testid="source-row" className="truncate">
-                  {source.name}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <SourcesPanel tracker={tracker} />
 
         <section
           data-testid="preview-panel"
           aria-label="Preview"
           className="flex min-w-0 flex-1 flex-col"
         >
+          <RelinkPrompt tracker={tracker} />
           <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3">
             {engineFatal === null ? (
               <canvas
@@ -279,18 +292,7 @@ export function EditorLayout() {
         </section>
       </div>
 
-      <section
-        data-testid="timeline-panel"
-        aria-label="Timeline"
-        className="flex h-40 shrink-0 flex-col gap-2 border-t p-3"
-      >
-        <h2 className="text-xs font-medium text-muted-foreground">Timeline</h2>
-        <p data-testid="timeline-duration" className="text-xs">
-          {durationFrames === 0
-            ? "Empty — no Clips yet."
-            : `${durationFrames} Frames across ${project?.timeline.tracks.length ?? 0} Track(s).`}
-        </p>
-      </section>
+      <Timeline />
     </div>
   )
 }

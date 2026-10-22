@@ -176,15 +176,30 @@ export async function loadProject(id: string): Promise<Project | undefined> {
  *     caller holds is still intact — rather than in a session the user has already closed.
  *   * The validation is the model's, in the model, once. This file states no rule of its own.
  *
- * The cost is a rebuild per write, which is why writes are debounced (`createProjectSaver`) rather
- * than made on every keystroke.
+ * The cost is a rebuild per write, which is why the edits *inside* a gesture are debounced
+ * (`createProjectSaver`) rather than written per pointer move; a finished gesture is written at once
+ * (the store's `writeNow`).
  *
  * No timestamp is stamped here. `modifiedAt` comes from the command that made the edit, so that
  * saving is a consequence of an edit and never an edit in itself.
+ *
+ * **The transaction is committed explicitly**, in the same turn as the `put`, and that is what
+ * makes a write started while the page is unloading land. Left to auto-commit, IndexedDB commits
+ * only once the `put`'s success event has been delivered back to the page and its handlers have
+ * run — a round trip to the browser and back. A page being reloaded or navigated away from is gone
+ * before that round trip completes, and the browser then *aborts* the transaction rather than
+ * committing it: the write the `pagehide` flush started was lost every time (reproduced by
+ * `e2e/edits-survive-a-reload.spec.ts`). `commit()` sends the commit with the request, so nothing
+ * waits on the page any more.
  */
 export async function saveProject(project: Project): Promise<void> {
+  // Rebuilt before the transaction opens, so a document the parser refuses opens nothing.
+  const document = parseProject(project)
   const database = await openCutroomDatabase()
-  await database.put(PROJECT_STORE, parseProject(project))
+  const transaction = database.transaction(PROJECT_STORE, "readwrite")
+  const written = transaction.store.put(document)
+  transaction.commit()
+  await Promise.all([written, transaction.done])
 }
 
 /** How a saver reports a write that failed. */

@@ -56,9 +56,20 @@
 //
 // ## Saving
 //
-// Every change to the Project is handed to the debounced saver (FR-020); nothing asks the user to
-// save. The saver's `flush` is wired to `pagehide`, which is the only thing standing between a
-// closing tab and a debounce interval of lost edits — see the note at `flushOnPageHide`.
+// Every change to the Project is handed to the saver (FR-020); nothing asks the user to save. The
+// rule for *when* it is written follows the gesture, the same line undo draws:
+//
+//   * **A finished gesture is written now** — a standalone command, a committed or aborted
+//     transaction, an undo, a redo. The store is idle afterwards, and an edit the user has watched
+//     land is the edit a reload straight after it must keep. These are one write per thing the user
+//     did, so there is nothing for a debounce to save.
+//   * **Edits inside an open gesture are debounced** (500 ms quiet, 2 s at most), because a drag
+//     emits a command per pointer move and rebuilding the document for each would be the cost.
+//   * **Whatever is outstanding is written as the page is hidden or unloaded** — `visibilitychange`
+//     to `hidden` and `pagehide`; see `flushWhenLeaving`.
+//
+// What makes the last two hold across a real reload is in `saveProject`: the IndexedDB transaction
+// is committed explicitly, because one left to auto-commit is aborted when the page goes away.
 
 import { applyPatches, enablePatches, type Patch } from "immer"
 import { create } from "zustand"
@@ -82,6 +93,24 @@ export type Screen = "projects" | "editor"
 
 /** Whether a Source's bytes can be reached from this machine right now (data-model.md). */
 export type SourceStatus = "linked" | "offline"
+
+/**
+ * Why an Offline Source is Offline, in the terms the UI acts on (T051, T052). Not a third status:
+ * data-model.md has exactly two, and *which way* a Source is unreachable belongs in the reason.
+ *
+ *   * `needs-permission` — the handle is here and one click re-grants it.
+ *   * `never-linked-here` — this machine has no handle; the file has to be picked again.
+ *   * `unreachable` — the handle is here and granted, and the file is not where it pointed.
+ *   * `unreadable` — the file is there, and the engine could not read it as this Source.
+ *
+ * Plain data, like everything in this store; the handle a re-grant needs lives outside it, in
+ * `source-status.ts`, keyed by the same id (ADR 0004).
+ */
+export interface SourceOfflineReason {
+  readonly reason: "needs-permission" | "never-linked-here" | "unreachable" | "unreadable"
+  /** The platform's or the engine's own words, when there are any. */
+  readonly detail?: string
+}
 
 /**
  * One undo step: everything one gesture did, in both directions.
@@ -157,6 +186,8 @@ export interface EditorState {
   readonly playheadFrame: number
   readonly transport: "stopped" | "playing"
   readonly sourceStatus: Readonly<Record<string, SourceStatus>>
+  /** For each Offline Source, why. A Linked Source has no entry. */
+  readonly sourceOffline: Readonly<Record<string, SourceOfflineReason>>
   /** What the engine said when it gave up, for the shell to show instead of a frozen Preview. */
   readonly engineFatal: string | null
   /** Why the last attempt to open a Project from the list failed, in words for the user. */
@@ -175,9 +206,10 @@ export interface EditorState {
   /**
    * Records whether a Source can be reached. Runtime state: no command, no patch, no history —
    * which is what makes undo unable to take a Source Offline (T022). *When* this is called is
-   * T051's business; that it is not undoable is settled here.
+   * T051's business (`source-status.ts`); that it is not undoable is settled here. `why` is kept
+   * for an Offline Source and dropped for a Linked one.
    */
-  markSource(sourceId: string, status: SourceStatus): void
+  markSource(sourceId: string, status: SourceStatus, why?: SourceOfflineReason): void
   reportEngineFatal(reason: string): void
 
   /** Opens the editor with no Project yet. The first import brings one into being (T041). */
@@ -244,6 +276,7 @@ const NO_PROJECT = {
   playheadFrame: 0,
   transport: "stopped",
   sourceStatus: {},
+  sourceOffline: {},
   engineFatal: null,
 } as const
 
@@ -265,12 +298,23 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       if (project !== null) saver.save(project)
     }
 
+    /**
+     * Writes the Project now rather than when the debounce would. Called whenever a gesture has
+     * finished and the store is idle: the edit is complete, the user has seen it, and nothing more
+     * is coming for a debounce to fold into it. `flush` reports its own failures.
+     */
+    function writeNow(): void {
+      void saver.flush()
+    }
+
     /** Closes the outermost transaction: one history entry, or none if nothing changed. */
     function closeGesture(): void {
       if (gesture === null) return
       const finished = gesture
       gesture = null
       set({ openTransaction: null })
+      // Aborted or committed, the Project is now what it will stay until the next gesture.
+      writeNow()
 
       if (finished.aborted) return
 
@@ -368,6 +412,7 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       // are untouched by construction: they are not in `project`, and nothing else is written here.
       adopt(applyProjectPatches(state.project, entry.inversePatches))
       set({ past: state.past.slice(0, -1), future: [entry, ...state.future] })
+      writeNow()
     }
 
     function redo(): void {
@@ -382,6 +427,7 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
 
       adopt(applyProjectPatches(state.project, entry.patches))
       set({ past: [...state.past, entry], future: state.future.slice(1) })
+      writeNow()
     }
 
     async function openProject(id: string): Promise<void> {
@@ -434,8 +480,13 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
         set({ transport })
       },
 
-      markSource(sourceId, status) {
-        set((state) => ({ sourceStatus: { ...state.sourceStatus, [sourceId]: status } }))
+      markSource(sourceId, status, why) {
+        set((state) => {
+          const sourceOffline = { ...state.sourceOffline }
+          if (status === "offline") sourceOffline[sourceId] = why ?? { reason: "unreachable" }
+          else delete sourceOffline[sourceId]
+          return { sourceStatus: { ...state.sourceStatus, [sourceId]: status }, sourceOffline }
+        })
       },
 
       reportEngineFatal(reason) {
@@ -468,21 +519,32 @@ const saver = createProjectSaver()
 export const useEditorStore = createEditorStore({ saver, loadProject })
 
 /**
- * Writes whatever is outstanding as the tab goes away.
+ * Writes whatever is outstanding as the page is hidden or goes away.
  *
- * `createProjectSaver` debounces, so at any moment up to two seconds of edits exist only in memory.
- * Without this, the ordinary way to leave a page — closing the tab — is also the way to lose them,
- * and the user was never asked to save (FR-020), so there is nothing they did wrong.
+ * A finished gesture has already been written (`writeNow`), so what is outstanding here is at most
+ * a gesture still being made — a drag the tab was closed in the middle of — or a write the debounce
+ * had not reached yet. Two events, because neither covers every way a page goes away:
  *
- * `flush` returns a promise and `pagehide` cannot await one. What it can do is *start* the write:
- * the IndexedDB transaction is opened inside this handler and the browser sees it through. That is
- * the whole of what the platform offers here, and it is worth being exact about rather than
- * implying a guarantee — a write that has not begun by the time the handler returns will not happen.
+ *   * `visibilitychange` to `hidden` is the one browsers promise to deliver — switching tabs,
+ *     minimising, and on mobile the last event a page sees before it is discarded without any
+ *     unload at all. It is also the earlier of the two on a reload or a close.
+ *   * `pagehide` is the unload itself, and the one that fires when the page was never visible.
+ *
+ * Neither handler can await anything, and neither needs to. `flush` *starts* the write in the
+ * handler's own turn — the connection is already open, so the `put` and its explicit `commit` are
+ * issued before the page is torn down, and the browser finishes a committed transaction on its own
+ * (`saveProject`). The one write this cannot rescue is a second one queued behind a write still in
+ * flight at that instant: the saver never overlaps writes, so it is issued only when the first one
+ * lands, which on an unloading page is too late. That window is the duration of one IndexedDB
+ * write, a few milliseconds.
  */
-function flushOnPageHide(): void {
+function flushWhenLeaving(): void {
   void saver.flush()
 }
 
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushOnPageHide)
+  window.addEventListener("pagehide", flushWhenLeaving)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") flushWhenLeaving()
+  })
 }

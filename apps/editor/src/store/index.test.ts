@@ -260,8 +260,66 @@ describe("saving", () => {
     expect(saver.save).toHaveBeenCalledTimes(3)
   })
 
+  it("writes a finished command at once rather than waiting for the debounce", () => {
+    // The first import is what a reload straight afterwards must find: the Project comes into
+    // being in one gesture, and the store is idle the moment it ends.
+    const { store, saver } = setup()
+    store.getState().newProject()
+    store.getState().run(create)
+    expect(saver.flush).toHaveBeenCalledOnce()
+    expect(saver.flush.mock.invocationCallOrder[0]).toBeGreaterThan(
+      saver.save.mock.invocationCallOrder[0]!
+    )
+  })
+
+  it("writes a gesture once, when it closes, and not while it is being made", () => {
+    const { store, saver } = started()
+    saver.flush.mockClear()
+
+    const drag = store.getState().beginTransaction("Drag")
+    store.getState().run(importSource)
+    store.getState().run(addClip("clip-1", 0))
+    // Every step reaches the saver, which debounces them; none is forced out mid-gesture.
+    expect(saver.save).toHaveBeenCalledTimes(3)
+    expect(saver.flush).not.toHaveBeenCalled()
+
+    drag.commit()
+    expect(saver.flush).toHaveBeenCalledOnce()
+
+    store.getState().transact("Add", () => {
+      store.getState().run(addClip("clip-2", 100))
+      expect(saver.flush).toHaveBeenCalledOnce()
+    })
+    expect(saver.flush).toHaveBeenCalledTimes(2)
+  })
+
+  it("writes an aborted gesture's restored Project at once", () => {
+    const { store, saver } = started()
+    const before = store.getState().project
+    saver.flush.mockClear()
+
+    const gesture = store.getState().beginTransaction("Drag")
+    store.getState().run(importSource)
+    gesture.abort()
+
+    expect(saver.save).toHaveBeenLastCalledWith(before)
+    expect(saver.flush).toHaveBeenCalledOnce()
+  })
+
+  it("writes an undo and a redo at once", () => {
+    const { store, saver } = started()
+    store.getState().run(importSource)
+    saver.flush.mockClear()
+
+    store.getState().undo()
+    expect(saver.flush).toHaveBeenCalledOnce()
+    store.getState().redo()
+    expect(saver.flush).toHaveBeenCalledTimes(2)
+  })
+
   it("flushes before leaving the editor", async () => {
     const { store, saver } = started()
+    saver.flush.mockClear()
     await store.getState().closeProject()
     expect(saver.flush).toHaveBeenCalledOnce()
     expect(store.getState().screen).toBe("projects")
