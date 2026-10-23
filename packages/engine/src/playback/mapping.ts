@@ -20,7 +20,13 @@
 //     (`roundIfAlmostInteger`, isobmff demuxer), so a Frame whose start coincides with a Source
 //     Frame's start selects that Source Frame rather than the one before it.
 
-import { frameToSourceTime, type Frame, type SceneClip, type Timebase } from "@cutroom/model"
+import {
+  frameToSourceTime,
+  type Frame,
+  type Rational,
+  type SceneClip,
+  type Timebase,
+} from "@cutroom/model"
 
 /**
  * Whether a SceneClip is on screen at a Frame: from its first Frame, up to but not including the
@@ -34,7 +40,7 @@ export function covers(clip: SceneClip, frame: Frame): boolean {
 
 /**
  * The time inside the Clip's Source at which `frame` asks for a picture, in the Source's own
- * seconds, as the float Mediabunny's sinks take.
+ * seconds, as the exact ratio the model computes.
  *
  * The Frame is first made relative to the Clip — Frame `startFrame` of the Timeline is Frame 0 of
  * the Clip, and shows the Source at `sourceInPoint` — and the model does the rest. Calling this
@@ -42,13 +48,25 @@ export function covers(clip: SceneClip, frame: Frame): boolean {
  * time before the Clip's in-point or past its end, either of which would decode a plausible
  * picture that does not belong on screen.
  */
-export function sourceSecondsAt(timebase: Timebase, clip: SceneClip, frame: Frame): number {
+export function sourceTimeAt(timebase: Timebase, clip: SceneClip, frame: Frame): Rational {
   if (!covers(clip, frame)) {
     throw new RangeError(
-      `sourceSecondsAt: Frame ${frame} is outside Clip ${clip.clipId} ` +
+      `sourceTimeAt: Frame ${frame} is outside Clip ${clip.clipId} ` +
         `(Frames ${clip.startFrame}…${clip.startFrame + clip.durationFrames - 1})`
     )
   }
-  const time = frameToSourceTime(timebase, clip.sourceInPoint, frame - clip.startFrame)
+  return frameToSourceTime(timebase, clip.sourceInPoint, frame - clip.startFrame)
+}
+
+/**
+ * A Source time as the float Mediabunny's sinks take: the one division at the decoder's door,
+ * with nothing computed after it.
+ */
+export function decoderSeconds(time: Rational): number {
   return time.numerator / time.denominator
+}
+
+/** `sourceTimeAt`, handed straight to a decoder. */
+export function sourceSecondsAt(timebase: Timebase, clip: SceneClip, frame: Frame): number {
+  return decoderSeconds(sourceTimeAt(timebase, clip, frame))
 }

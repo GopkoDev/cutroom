@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "test:e2e:slow": "CUTROOM_E2E_SLOW=1 playwright test --grep @slow",
     "test": "vitest run"
   },
   "dependencies": {

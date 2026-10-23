@@ -240,7 +240,7 @@ test("a Scene is accepted and a Frame renders at the Project's frame size", asyn
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE, scene: EMPTY_SCENE }
   )
 
-  expect(result.rendered).toEqual({ type: "frame-rendered", frame: 0, revision: 1 })
+  expect(result.rendered).toEqual({ type: "frame-rendered", frame: 0, revision: 1, skipped: 0 })
 
   // The canvas the worker was handed was 16×9. It is the Project's frame size now, which only
   // something inside the worker could have done.
@@ -327,7 +327,7 @@ test("a Scene older than the one the worker holds is ignored", async ({ page }) 
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE, scene: EMPTY_SCENE }
   )
 
-  expect(result.rendered).toEqual({ type: "frame-rendered", frame: 12, revision: 7 })
+  expect(result.rendered).toEqual({ type: "frame-rendered", frame: 12, revision: 7, skipped: 0 })
   expect({ width: result.pixels.width, height: result.pixels.height }).toEqual(FRAME_SIZE)
 })
 
@@ -380,13 +380,13 @@ test("a message the engine recognises but has not built yet says so rather than 
       engine.init(timebase, frameSize)
       await engine.next("ready")
 
-      engine.send({ type: "transport", state: "playing", fromFrame: 0 })
+      engine.send({ type: "export-cancel" })
       return await engine.next("fatal")
     },
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE }
   )
 
-  expect(fatal.reason).toContain("transport")
+  expect(fatal.reason).toContain("export-cancel")
 })
 
 test("a Frame asked for before there is a Scene is reported dropped, not answered", async ({

@@ -8,6 +8,8 @@ import {
   framesForDuration,
   secondsToFrame,
   secondsToTicks,
+  sourceTimeBefore,
+  sourceTimeToTicks,
   ticksToSeconds,
   timebaseFromTicks,
   type Rational,
@@ -341,6 +343,39 @@ describe("frameToSourceTime", () => {
   })
 })
 
+describe("sourceTimeBefore", () => {
+  it("subtracts exactly and answers in lowest terms", () => {
+    expect(
+      sourceTimeBefore({ numerator: 14, denominator: 1 }, { numerator: 1, denominator: 10 })
+    ).toEqual({ numerator: 139, denominator: 10 })
+    // A 29.97 Frame before the in-point of a 29.97 Source's tenth Frame is its ninth.
+    expect(
+      sourceTimeBefore(
+        { numerator: 1001, denominator: 3000 },
+        { numerator: 1001, denominator: 30_000 }
+      )
+    ).toEqual({ numerator: 3003, denominator: 10_000 })
+  })
+
+  it("stops at the beginning of the Source rather than going before it", () => {
+    expect(
+      sourceTimeBefore({ numerator: 1, denominator: 20 }, { numerator: 1, denominator: 10 })
+    ).toEqual({ numerator: 0, denominator: 1 })
+    expect(
+      sourceTimeBefore({ numerator: 1, denominator: 10 }, { numerator: 1, denominator: 10 })
+    ).toEqual({ numerator: 0, denominator: 1 })
+  })
+
+  it("rejects a time or a duration that is not a non-negative ratio", () => {
+    expect(() =>
+      sourceTimeBefore({ numerator: -1, denominator: 1 }, { numerator: 0, denominator: 1 })
+    ).toThrow(/^sourceTimeBefore: time numerator must be a non-negative safe integer, got -1$/)
+    expect(() =>
+      sourceTimeBefore({ numerator: 1, denominator: 1 }, { numerator: 1, denominator: 0 })
+    ).toThrow(RangeError)
+  })
+})
+
 describe("every function is total", () => {
   const zeroInPoint: Rational = { numerator: 0, denominator: 1 }
   const callers: [string, (timebase: Timebase, frame: number) => unknown][] = [
@@ -403,10 +438,13 @@ describe("every function is total", () => {
 // A Source's own clock
 // ---------------------------------------------------------------------------------------------
 
+const ONE_SECOND: Rational = { numerator: 1, denominator: 1 }
+
 /** The tick-clock functions share one argument that is not a Frame or a Timebase. */
 const tickCallers: [string, (ticksPerSecond: number) => unknown][] = [
   ["secondsToTicks", (ticksPerSecond) => secondsToTicks(ticksPerSecond, 1)],
   ["ticksToSeconds", (ticksPerSecond) => ticksToSeconds(ticksPerSecond, 1)],
+  ["sourceTimeToTicks", (ticksPerSecond) => sourceTimeToTicks(ticksPerSecond, ONE_SECOND)],
   ["timebaseFromTicks", (ticksPerSecond) => timebaseFromTicks(ticksPerSecond, 1, 1)],
 ]
 
@@ -487,6 +525,54 @@ describe("ticksToSeconds", () => {
     expect(() => ticksToSeconds(30_000, 2 ** 60)).toThrow(
       /ticks must be a non-negative safe integer/
     )
+  })
+})
+
+describe("sourceTimeToTicks — an exact Source time on a sample clock", () => {
+  it("is exact where the time lies on the clock", () => {
+    expect(sourceTimeToTicks(SAMPLE_RATE, { numerator: 0, denominator: 1 })).toBe(0)
+    expect(sourceTimeToTicks(SAMPLE_RATE, { numerator: 5, denominator: 2 })).toBe(120_000)
+    // Five 29.97 Frames are 5005/30000 s, which is a whole 8008 samples at 48 kHz.
+    expect(sourceTimeToTicks(SAMPLE_RATE, { numerator: 1001, denominator: 6000 })).toBe(8008)
+  })
+
+  it("takes the nearest tick, an exact half going up, like every rounding here", () => {
+    expect(sourceTimeToTicks(SAMPLE_RATE, { numerator: 1001, denominator: 30_000 })).toBe(1602)
+    expect(sourceTimeToTicks(SAMPLE_RATE, { numerator: 1001, denominator: 15_000 })).toBe(3203)
+    // On a clock of 2, a quarter second is exactly half a tick.
+    expect(sourceTimeToTicks(2, { numerator: 1, denominator: 4 })).toBe(1)
+    expect(sourceTimeToTicks(2, { numerator: 3, denominator: 4 })).toBe(2)
+  })
+
+  it("agrees with frameToSampleIndex wherever a Source time is a Frame boundary", () => {
+    // The two must line a Source's samples up with the Timeline's identically, or a Clip with an
+    // in-point would start its sound half a sample away from where its picture starts.
+    for (let frame = 0; frame <= 17_982; frame += 7) {
+      const time = frameToSourceTime(NTSC, { numerator: 0, denominator: 1 }, frame)
+      expect(sourceTimeToTicks(SAMPLE_RATE, time)).toBe(
+        frameToSampleIndex(NTSC, SAMPLE_RATE, frame)
+      )
+    }
+  })
+
+  it("forms the product exactly, so a long Source on a fine clock does not lose a tick", () => {
+    // Ten hours plus a third of a second, on a 192 kHz clock: 6 912 064 000 ticks.
+    expect(sourceTimeToTicks(192_000, { numerator: 108_001, denominator: 3 })).toBe(6_912_064_000)
+  })
+
+  it("rejects a time that is not a non-negative ratio, or a result beyond exact integers", () => {
+    expect(() => sourceTimeToTicks(SAMPLE_RATE, { numerator: -1, denominator: 1 })).toThrow(
+      /^sourceTimeToTicks: time numerator must be a non-negative safe integer, got -1$/
+    )
+    expect(() => sourceTimeToTicks(SAMPLE_RATE, { numerator: 1, denominator: 0 })).toThrow(
+      /time denominator must be a positive safe integer, got 0/
+    )
+    expect(() => sourceTimeToTicks(SAMPLE_RATE, 0.5 as unknown as Rational)).toThrow(
+      /time must be a \{ numerator, denominator \}, got 0.5/
+    )
+    expect(() =>
+      sourceTimeToTicks(SAMPLE_RATE, { numerator: Number.MAX_SAFE_INTEGER, denominator: 1 })
+    ).toThrow(/^sourceTimeToTicks: tick count is .* beyond Number.MAX_SAFE_INTEGER/)
   })
 })
 

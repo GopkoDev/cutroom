@@ -282,6 +282,32 @@ export function frameToSourceTime(
   }
 }
 
+/**
+ * The Source time `duration` before `time`, or the Source's very beginning if that is earlier —
+ * exact, in lowest terms. Both are Source time (Principle II's exception), so this is subtraction
+ * of two exact ratios and nothing else.
+ *
+ * What it is for: a decoder started cold at `time` does not produce `time` correctly. An AAC
+ * decoder's first frame is half an overlap with silence, so sound decoded from the very packet a
+ * seek lands in begins with a fade-in that is not in the file; starting a little earlier and
+ * discarding the run-up is the remedy, and this is how far back "a little" is measured.
+ */
+export function sourceTimeBefore(time: Rational, duration: Rational): Rational {
+  assertRatio(time, "sourceTimeBefore", "time", 0)
+  assertRatio(duration, "sourceTimeBefore", "duration", 0)
+
+  const numerator =
+    BigInt(time.numerator) * BigInt(duration.denominator) -
+    BigInt(duration.numerator) * BigInt(time.denominator)
+  if (numerator <= 0n) return { numerator: 0, denominator: 1 }
+  const denominator = BigInt(time.denominator) * BigInt(duration.denominator)
+  const divisor = gcd(numerator, denominator)
+  return {
+    numerator: toSafeNumber(numerator / divisor, "sourceTimeBefore", "Source time numerator"),
+    denominator: toSafeNumber(denominator / divisor, "sourceTimeBefore", "Source time denominator"),
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // A Source's own clock: ticks
 // ---------------------------------------------------------------------------------------------
@@ -349,6 +375,27 @@ export function ticksToSeconds(ticksPerSecond: number, ticks: number): Rational 
   const denominator = BigInt(ticksPerSecond)
   const divisor = gcd(numerator, denominator)
   return { numerator: Number(numerator / divisor), denominator: Number(denominator / divisor) }
+}
+
+/**
+ * The tick on a clock of `ticksPerSecond` that an exact Source time falls on: nearest, an exact
+ * half going up — the module's one tie rule.
+ *
+ * `secondsToTicks` recovers a tick from a demuxer's float; this is the same question asked of a
+ * time that is already exact, such as a Clip's `sourceInPoint`, so it is answered in integers with
+ * no float anywhere. Its use is audio: a decoded stream's samples lie on a clock of its sample rate,
+ * and where a Clip's in-point lands on that clock is what lines a Source's samples up with the
+ * Timeline's (`frameToSampleIndex`). 1001/30000 s on a 48 000 clock is 1601.6, so sample 1602.
+ */
+export function sourceTimeToTicks(ticksPerSecond: number, time: Rational): number {
+  assertTicksPerSecond(ticksPerSecond, "sourceTimeToTicks")
+  assertRatio(time, "sourceTimeToTicks", "time", 0)
+
+  const ticks = roundHalfUp(
+    BigInt(time.numerator) * BigInt(ticksPerSecond),
+    BigInt(time.denominator)
+  )
+  return toSafeNumber(ticks, "sourceTimeToTicks", "tick count")
 }
 
 /**
@@ -441,4 +488,156 @@ export function frameToTimecode(timebase: Timebase, frame: number): Timecode {
     seconds: Number(second % 60n),
     frames: Number(BigInt(frame) - firstFrameOfSecond),
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Playback on the audio clock (ADR 0008, R3)
+// ---------------------------------------------------------------------------------------------
+//
+// During playback the master clock is an `AudioContext`'s `currentTime`: seconds on the audio
+// hardware's clock, a float that Web Audio hands us and takes back. A **playback anchor** pins one
+// Frame of the Timeline to one instant on that clock — "Frame 120 begins to sound at 3.25" — and the
+// three functions below are the only conversions between the two clocks: which Frame is playing at
+// a context time, when a Frame begins, and when a sample of the Timeline's sound begins.
+//
+// Every answer is measured from the anchor, never accumulated from the previous answer, so the error
+// is one float rounding whatever the distance from the anchor — the same property the rest of this
+// module holds, and the one that makes drift over a ten-minute playback structurally impossible
+// rather than merely small (FR-013).
+
+/**
+ * One Frame of the Timeline pinned to one instant of an audio clock: `frame` begins to sound when
+ * the clock reads `contextSeconds`. Set when playback starts, and again after a seek.
+ */
+export interface PlaybackAnchor {
+  readonly frame: number
+  /** A reading of `AudioContext.currentTime` — seconds on the audio clock, not on the Timeline. */
+  readonly contextSeconds: number
+}
+
+function assertAnchor(anchor: unknown, where: string): asserts anchor is PlaybackAnchor {
+  if (typeof anchor !== "object" || anchor === null) {
+    throw new RangeError(
+      `${where}: anchor must be a { frame, contextSeconds }, got ${show(anchor)}`
+    )
+  }
+  const { frame, contextSeconds } = anchor as Record<string, unknown>
+  assertFrame(frame, `${where} (anchor)`)
+  if (typeof contextSeconds !== "number" || !Number.isFinite(contextSeconds)) {
+    throw new RangeError(
+      `${where}: anchor.contextSeconds must be a finite number, got ${show(contextSeconds)}`
+    )
+  }
+}
+
+/** `anchor + numerator / denominator`, with the division split so its only rounding is the last. */
+function anchoredSeconds(anchor: PlaybackAnchor, numerator: bigint, denominator: bigint): number {
+  // BigInt division truncates towards zero and `%` takes the dividend's sign, so `q + r / d` is
+  // exact for a negative offset as well as a positive one.
+  return (
+    anchor.contextSeconds +
+    Number(numerator / denominator) +
+    Number(numerator % denominator) / Number(denominator)
+  )
+}
+
+/**
+ * The context time at which a Frame begins to sound, given where playback was anchored. The Frame
+ * may be before the anchor's — the answer is then earlier than `anchor.contextSeconds`.
+ */
+export function frameToContextTime(
+  timebase: Timebase,
+  anchor: PlaybackAnchor,
+  frame: number
+): number {
+  assertRatio(timebase, "frameToContextTime", "Timebase", 1)
+  assertAnchor(anchor, "frameToContextTime")
+  assertFrame(frame, "frameToContextTime")
+
+  const offset = (BigInt(frame) - BigInt(anchor.frame)) * BigInt(timebase.denominator)
+  return anchoredSeconds(anchor, offset, BigInt(timebase.numerator))
+}
+
+/**
+ * The Frame that is playing when the audio clock reads `contextSeconds`: the last Frame that has
+ * begun, by `frameToContextTime`. Before the anchor — playback is scheduled a little ahead of the
+ * press — it is the anchor's own Frame, which is the one on screen while the sound has yet to start.
+ *
+ * **Not `secondsToFrame`'s rounding, on purpose.** That rule answers "which Frame does this
+ * timestamp belong to", nearest wins. This asks which Frame is on screen, and a Frame is on screen
+ * from the instant it begins until the next one begins — the floor, the same question
+ * `frameToTimecode` answers for seconds. Rounding to nearest would show every Frame half a Frame
+ * before its sound.
+ *
+ * The estimate from the float is checked against `frameToContextTime`, so the two functions agree
+ * by construction: at the very instant `frameToContextTime(f)` returns, this returns `f`.
+ */
+export function frameAtContextTime(
+  timebase: Timebase,
+  anchor: PlaybackAnchor,
+  contextSeconds: number
+): number {
+  assertRatio(timebase, "frameAtContextTime", "Timebase", 1)
+  assertAnchor(anchor, "frameAtContextTime")
+  if (typeof contextSeconds !== "number" || !Number.isFinite(contextSeconds)) {
+    throw new RangeError(
+      `frameAtContextTime: contextSeconds must be a finite number, got ${show(contextSeconds)}`
+    )
+  }
+
+  const elapsed = contextSeconds - anchor.contextSeconds
+  if (elapsed <= 0) return anchor.frame
+
+  // Scaled first and divided once, as in `secondsToFrame`, then corrected by at most a step either
+  // way against the exact boundary.
+  let frame = anchor.frame + Math.floor((elapsed * timebase.numerator) / timebase.denominator)
+  if (!Number.isSafeInteger(frame)) {
+    throw new RangeError(
+      `frameAtContextTime: ${elapsed} seconds after the anchor is beyond the range of exact Frames`
+    )
+  }
+  while (frameToContextTime(timebase, anchor, frame + 1) <= contextSeconds) frame += 1
+  while (frame > anchor.frame && frameToContextTime(timebase, anchor, frame) > contextSeconds) {
+    frame -= 1
+  }
+  return frame
+}
+
+/**
+ * The context time at which one sample of the Timeline's sound begins to play.
+ *
+ * `sample` is an index on the Timeline's own sample grid at `sampleRate` — the grid
+ * `frameToSampleIndex` lays down, sample 0 at the start of Frame 0 — which is where the engine
+ * places a Clip's decoded sound (`audio-pcm`). So:
+ *
+ *     contextTime = anchor.contextSeconds + sample / sampleRate − anchor.frame / timebase
+ *
+ * computed as one exact rational and divided once. Measured against the exact start of the
+ * anchor's Frame, not against `frameToSampleIndex` of it, so the only rounding is the final one.
+ */
+export function timelineSampleToContextTime(
+  timebase: Timebase,
+  anchor: PlaybackAnchor,
+  sampleRate: number,
+  sample: number
+): number {
+  const where = "timelineSampleToContextTime"
+  assertRatio(timebase, where, "Timebase", 1)
+  assertAnchor(anchor, where)
+  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0) {
+    throw new RangeError(
+      `${where}: sampleRate must be a positive safe integer, got ${show(sampleRate)}`
+    )
+  }
+  if (!Number.isSafeInteger(sample) || sample < 0) {
+    throw new RangeError(
+      `${where}: sample must be a non-negative safe integer, got ${show(sample)}`
+    )
+  }
+
+  const rate = BigInt(timebase.numerator)
+  const samplesPerSecond = BigInt(sampleRate)
+  const numerator =
+    BigInt(sample) * rate - BigInt(anchor.frame) * BigInt(timebase.denominator) * samplesPerSecond
+  return anchoredSeconds(anchor, numerator, rate * samplesPerSecond)
 }

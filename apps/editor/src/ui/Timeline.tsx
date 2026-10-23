@@ -19,6 +19,12 @@
 // Tracks are drawn the other way up from the Scene's order: `tracks[0]` is backmost, so it is drawn
 // at the bottom, and the reversal lives here where presentation belongs (data-model.md). This
 // slice has one video Track, which is why the rule is cheap to state now.
+//
+// While playing, the Playhead moves every Frame. So only `TimelineBody` — the slider's element and
+// the Playhead line on it — reads `playheadFrame`; the ruler and the Clips are built by `Timeline`,
+// which reads only how many Frames are shown, and handed to the body as children it does not
+// rebuild. A Playhead that re-rendered the whole Timeline thirty times a second was part of what
+// cost playback its Frames (T072).
 
 import {
   useCallback,
@@ -27,6 +33,8 @@ import {
   useState,
   type KeyboardEvent,
   type PointerEvent,
+  type ReactNode,
+  type RefObject,
 } from "react"
 
 import type { Clip, Source } from "@cutroom/model"
@@ -103,17 +111,87 @@ function ClipBlock({
   )
 }
 
+/**
+ * How many Frames the Timeline shows: a little more than its length, and always the Playhead's
+ * Frame. A selector, so the Timeline re-renders when this changes and not on every Playhead move.
+ */
+function shownFramesOf(state: {
+  project: { timeline: { durationFrames: number } } | null
+  playheadFrame: number
+}): number {
+  return Math.max(
+    visibleFrames(state.project?.timeline.durationFrames ?? 0),
+    state.playheadFrame + 1
+  )
+}
+
+/**
+ * The Timeline's body: the Playhead slider and the Playhead drawn on it. The only part of the
+ * Timeline that reads the Playhead; `children` (the ruler and the Tracks) come from `Timeline` and
+ * are the same elements from one Playhead move to the next, so React leaves them alone.
+ */
+function TimelineBody({
+  bodyRef,
+  shown,
+  pxPerFrame,
+  onPointerDown,
+  onPointerMove,
+  onKeyDown,
+  children,
+}: {
+  readonly bodyRef: RefObject<HTMLDivElement | null>
+  readonly shown: number
+  readonly pxPerFrame: number
+  readonly onPointerDown: (event: PointerEvent<HTMLDivElement>) => void
+  readonly onPointerMove: (event: PointerEvent<HTMLDivElement>) => void
+  readonly onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
+  readonly children: ReactNode
+}) {
+  const playheadFrame = useEditorStore((state) => state.playheadFrame)
+
+  return (
+    <div
+      ref={bodyRef}
+      data-testid="timeline-body"
+      role="slider"
+      tabIndex={0}
+      aria-label="Playhead"
+      aria-valuemin={0}
+      aria-valuemax={shown - 1}
+      aria-valuenow={playheadFrame}
+      aria-valuetext={`Frame ${playheadFrame}`}
+      className="relative min-w-0 flex-1 cursor-pointer touch-none outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/30"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onKeyDown={onKeyDown}
+    >
+      {children}
+
+      {pxPerFrame > 0 ? (
+        <div
+          data-testid="timeline-playhead"
+          data-frame={playheadFrame}
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 w-px bg-red-500"
+          style={{ left: offsetOfFrame(playheadFrame, pxPerFrame) }}
+        >
+          <div className="absolute -top-0.5 -left-1 size-2 rotate-45 bg-red-500" />
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function Timeline() {
   const project = useEditorStore((state) => state.project)
-  const playheadFrame = useEditorStore((state) => state.playheadFrame)
   const sourceStatus = useEditorStore((state) => state.sourceStatus)
   const setPlayhead = useEditorStore((state) => state.setPlayhead)
+  const shown = useEditorStore(shownFramesOf)
 
   const [bodyRef, bodyWidth] = useWidth<HTMLDivElement>()
 
   const durationFrames = project?.timeline.durationFrames ?? 0
   const tracks = project?.timeline.tracks ?? []
-  const shown = Math.max(visibleFrames(durationFrames), playheadFrame + 1)
   const pxPerFrame = bodyWidth > 0 ? bodyWidth / shown : 0
   const step = rulerStep(pxPerFrame)
   const sources = new Map(project?.sources.map((source) => [source.id, source]))
@@ -142,6 +220,7 @@ export function Timeline() {
   // The keyboard reaches every Frame too, one at a time: FR-007 is "any Frame", and a pointer on a
   // narrow panel cannot pick out one Frame in an hour of them.
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const playheadFrame = useEditorStore.getState().playheadFrame
     const by = event.shiftKey ? 10 : 1
     let next: number | null = null
     if (event.key === "ArrowRight") next = playheadFrame + by
@@ -183,17 +262,10 @@ export function Timeline() {
           ))}
         </div>
 
-        <div
-          ref={bodyRef}
-          data-testid="timeline-body"
-          role="slider"
-          tabIndex={0}
-          aria-label="Playhead"
-          aria-valuemin={0}
-          aria-valuemax={shown - 1}
-          aria-valuenow={playheadFrame}
-          aria-valuetext={`Frame ${playheadFrame}`}
-          className="relative min-w-0 flex-1 cursor-pointer touch-none outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        <TimelineBody
+          bodyRef={bodyRef}
+          shown={shown}
+          pxPerFrame={pxPerFrame}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onKeyDown={onKeyDown}
@@ -235,19 +307,7 @@ export function Timeline() {
                 : null}
             </div>
           ))}
-
-          {pxPerFrame > 0 ? (
-            <div
-              data-testid="timeline-playhead"
-              data-frame={playheadFrame}
-              aria-hidden
-              className="pointer-events-none absolute inset-y-0 w-px bg-red-500"
-              style={{ left: offsetOfFrame(playheadFrame, pxPerFrame) }}
-            >
-              <div className="absolute -top-0.5 -left-1 size-2 rotate-45 bg-red-500" />
-            </div>
-          ) : null}
-        </div>
+        </TimelineBody>
       </div>
     </section>
   )

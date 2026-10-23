@@ -159,7 +159,15 @@ export interface RenderFrameMessage {
   readonly reason: "scrub" | "clock"
 }
 
-/** Lets the worker open or close streaming iterators at the right moment. */
+/**
+ * Lets the worker open or close streaming iterators at the right moment, and start or stop
+ * decoding sound ahead of the Playhead (`audio-pcm`).
+ *
+ * `playing` from `fromFrame` starts a playback run: every iterator and audio decode from an
+ * earlier run is closed, and both start again from `fromFrame`. **A seek during playback is a
+ * second `playing`** with the new `fromFrame` — that is how the worker learns that the clock has
+ * jumped rather than lagged. `stopped` closes everything; `fromFrame` is then informational.
+ */
 export interface TransportMessage {
   readonly type: "transport"
   readonly state: "playing" | "stopped"
@@ -272,6 +280,18 @@ export interface FrameRenderedEvent {
   readonly type: "frame-rendered"
   readonly frame: Frame
   readonly revision: number
+  /**
+   * How many Frames playback passed over, never shown, to reach this one: the Frames strictly
+   * between the previous Frame rendered in this playback run (or the run's `fromFrame`, for its
+   * first) and this one. Always 0 for a `scrub` Frame, and 0 when playback keeps up (FR-012).
+   *
+   * Carried here rather than as a separate `frames-dropped` because every `render-frame` is
+   * answered by exactly one event, and a client keeping one request in flight counts on that.
+   * `frames-dropped` stays the answer to a request that got no picture at all; this counts Frames
+   * of the Timeline that playback did not show. Only the worker can count them: it is the side
+   * that knows where a run begins, so a seek is never mistaken for a stall.
+   */
+  readonly skipped: number
 }
 
 /** Diagnostic only, never surfaced as an error: dropping Frames nobody is waiting for is the
@@ -281,10 +301,30 @@ export interface FramesDroppedEvent {
   readonly count: number
 }
 
-/** Decoded audio for playback scheduling on the main thread (ADR 0008), transferred. */
+/**
+ * Decoded sound of one Clip for playback scheduling on the main thread (ADR 0008), transferred.
+ * Sent during a playback run, ahead of the Playhead (R3), in order for each Clip.
+ *
+ * **Positioned on the Timeline, not in the Source.** `startSample` is the index of the first
+ * sample on the Timeline's own sample grid at `sampleRate` — the grid `frameToSampleIndex` lays
+ * down, so Frame `f` begins at sample `frameToSampleIndex(timebase, sampleRate, f)`. The Clip's
+ * in-point and start have already been applied, and the PCM is trimmed to the Frames the Clip
+ * covers, so the receiver does no mapping of its own. A consequence worth relying on: the same
+ * `clipId` and `startSample` always carry the same sound, so PCM from a run that has since been
+ * replaced (by a seek) is still correct where it lands, and a receiver need only schedule each
+ * sample of a Clip once.
+ *
+ * `sampleRate` is the Source's own, as decoded; the receiver's `AudioBuffer` takes it and Web
+ * Audio resamples. `channels` is one `Float32Array` per channel, all the same length, never
+ * empty. There is no end-of-stream marker: where a Clip's sound ends is where the Clip ends, which
+ * the receiver already knows from the Scene. A Source with no sound sends nothing at all, which is
+ * silence, and valid (US2 scenario 5).
+ */
 export interface AudioPcmEvent {
   readonly type: "audio-pcm"
   readonly sourceId: string
+  readonly clipId: string
+  readonly sampleRate: number
   readonly channels: readonly Float32Array[]
   readonly startSample: number
 }

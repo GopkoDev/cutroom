@@ -84,7 +84,10 @@ Open the printed URL in Chrome.
 8. **Expect**: picture plays, silence is normal, no error.
 9. Throttle the CPU (DevTools → Performance → 6× slowdown) and play.
 10. **Expect**: sound stays continuous and correct; picture skips. This is the visible form of
-    FR-012 — if audio stutters instead, the slice has failed its most important property.
+    FR-012 — if audio stutters instead, the slice has failed its most important property. DevTools
+    throttles the page, not the engine's worker, and on a fast machine (measured: an M4) 6× may
+    not make the picture skip at all; if it does not, raise it to 20× or rely on
+    `degrades-picture-not-sound.spec.ts`, which also loads the worker itself (T070).
 
 ### US3 — export
 
@@ -120,7 +123,8 @@ Open the printed URL in Chrome.
 
 ```bash
 pnpm test          # Vitest — packages/model only: timebase, reducer, migrations, scene
-pnpm test:e2e      # Playwright against Chromium — import, render, export, sync
+pnpm test:e2e      # Playwright against Chromium — import, render, playback, export
+pnpm test:e2e:slow # the two ten-minute measurements (A/V sync, sustained rate), on a fresh server
 ```
 
 The end-to-end suite covers what cannot be faked:
@@ -136,7 +140,7 @@ The end-to-end suite covers what cannot be faked:
 | Export duration | Re-open output, compare duration to `frameToSeconds(timebase, durationFrames)` | SC-006 |
 | Export ignores later edits | Start export, edit the Timeline mid-run, assert the output matches the Timeline as it was at the start | FR-019 |
 | Cancel | Start export, cancel, assert no complete file and prompt teardown | SC-009 |
-| Sustained playback rate | Play the ten-minute fixture unthrottled, count rendered Frames against dropped ones | SC-004 |
+| Sustained playback rate | Play the ten-minute fixture unthrottled, count rendered Frames against skipped ones (`frame-rendered.skipped`, ADR 0013) | SC-004 |
 | Export throughput | Export 60 s of 1080p30, measure wall-clock time | SC-005 |
 | Reopen and relink | Reload, assert the Project is listed, the Timeline is identical and the Source reads Offline | SC-008, FR-020 |
 | Source vanishes mid-session | Rename the file with the Project open, move the Playhead, assert Offline and an empty Preview | Edge case |

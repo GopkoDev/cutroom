@@ -27,6 +27,9 @@
 // (`SourcesPanel`), the Timeline (`Timeline`), the top bar with the timecode (`TopBar`) and the
 // prompt for Offline Sources (`RelinkPrompt`).
 //
+// It also owns the transport (T062) — play and stop, and the audio clock that drives the Preview
+// while playing — for the same reason as the tracker below: the transport talks to this engine.
+//
 // It also owns the one Source status tracker (T051), because the tracker's lifetime is the
 // engine's: attachments are per worker, so a tracker that outlived its engine would believe Sources
 // were attached to a worker that no longer exists. The three occasions on which status is derived
@@ -36,6 +39,17 @@
 // Source that goes Offline empties the Preview at once and one that comes back fills it, with no
 // edit to the Scene either way.
 //
+// ## Nothing here re-renders per Frame
+//
+// While playing, every Frame the engine draws moves the Playhead (the transport follows the
+// picture) and changes the "showing Frame …" line — thirty times a second. So neither is read here:
+// the Playhead's readouts are components of their own (`PlayheadLabel`, `ShownLabel`, the top bar's
+// timecode, the Timeline's Playhead), and this component reads only `scrubFrame`, which stands still
+// while playing. When the shell itself followed the Playhead, each Frame re-rendered the Source
+// list, the Timeline, the top bar and this, which was half the main thread's busy time during
+// playback and, on a slow moment, a missed display frame — and at the wrong phase between the
+// display and the audio clock, one missed display frame is one skipped Frame (T072).
+//
 // A `fatal` from the engine is shown in the Preview's place. The alternative is the failure ADR
 // 0003 names: the canvas belongs to the worker, so a dead worker and a still picture look
 // identical from out here.
@@ -44,6 +58,7 @@ import { useEffect, useRef, useState } from "react"
 
 import type { PixelSize, Timebase } from "@cutroom/model"
 
+import { createTransport, type Transport } from "@/audio/transport"
 import { startEngine, type EngineClient } from "@/engine-client"
 import { useEditorStore } from "@/store"
 import { createSourceStatusTracker, type SourceStatusTracker } from "@/store/source-status"
@@ -120,11 +135,46 @@ function frameLabel(frame: number): string {
   return `Frame ${frame}`
 }
 
+/** The Playhead's Frame. Its own component, because the Playhead moves every Frame while playing. */
+function PlayheadLabel() {
+  const playheadFrame = useEditorStore((state) => state.playheadFrame)
+  return <span data-testid="playhead">{frameLabel(playheadFrame)}</span>
+}
+
+/** What the engine says it drew last. Its own component for the same reason as `PlayheadLabel`. */
+function ShownLabel({ engine }: { readonly engine: EngineClient | null }) {
+  const [shown, setShown] = useState<{ frame: number; revision: number } | null>(null)
+
+  useEffect(() => {
+    if (engine === null) return
+    return engine.on("frame-rendered", (event) => {
+      setShown({ frame: event.frame, revision: event.revision })
+    })
+  }, [engine])
+
+  return (
+    <span data-testid="preview-shown">
+      {shown === null
+        ? "nothing rendered yet"
+        : `showing ${frameLabel(shown.frame)} of Scene ${shown.revision}`}
+    </span>
+  )
+}
+
+/**
+ * The Frame the shell asks the engine for: the Playhead while stopped, and `null` while playing,
+ * when the transport asks instead. A selector rather than `playheadFrame` itself, so a Playhead
+ * that moves every Frame while playing does not re-render the shell.
+ */
+function scrubFrameOf(state: { transport: "stopped" | "playing"; playheadFrame: number }) {
+  return state.transport === "playing" ? null : state.playheadFrame
+}
+
 export function EditorLayout() {
   const project = useEditorStore((state) => state.project)
   const scene = useEditorStore((state) => state.scene)
   const sceneRevision = useEditorStore((state) => state.sceneRevision)
-  const playheadFrame = useEditorStore((state) => state.playheadFrame)
+  const scrubFrame = useEditorStore(scrubFrameOf)
   const engineFatal = useEditorStore((state) => state.engineFatal)
   const sourceStatus = useEditorStore((state) => state.sourceStatus)
   const reportEngineFatal = useEditorStore((state) => state.reportEngineFatal)
@@ -132,8 +182,8 @@ export function EditorLayout() {
   const previewRef = useRef<HTMLCanvasElement>(null)
   const [engine, setEngine] = useState<EngineClient | null>(null)
   const [tracker, setTracker] = useState<SourceStatusTracker | null>(null)
+  const [transport, setTransport] = useState<Transport | null>(null)
   const [renderer, setRenderer] = useState<string | null>(null)
-  const [shown, setShown] = useState<{ frame: number; revision: number } | null>(null)
 
   // The frame size the raster is created at. Fixed at the first render — a lazy initial state, not
   // a ref, because it *is* rendered — because the element's width and height cannot be changed
@@ -169,9 +219,8 @@ export function EditorLayout() {
     // The tracker lives exactly as long as this engine: attachments are per worker (T051).
     const statusTracker = createSourceStatusTracker({ store: useEditorStore, engine: client })
     setTracker(statusTracker)
-    const stopWatchingFrames = client.on("frame-rendered", (event) => {
-      setShown({ frame: event.frame, revision: event.revision })
-    })
+    const playback = createTransport({ store: useEditorStore, engine: client })
+    setTransport(playback)
     const stopWatchingFatal = client.on("fatal", (event) => {
       reportEngineFatal(event.reason)
     })
@@ -185,8 +234,8 @@ export function EditorLayout() {
     )
 
     return () => {
-      stopWatchingFrames()
       stopWatchingFatal()
+      playback.dispose()
       statusTracker.dispose()
       releaseSession(element)
     }
@@ -235,8 +284,8 @@ export function EditorLayout() {
   // reason to ask again without a new Scene: a Source attached or detached changes the picture
   // and not the Timeline, and a Scene the worker already holds is ignored on repost.
   //
-  // This is the only place in the editor that asks for a Frame, and it is how the Playhead reaches
-  // the engine (T049): a drag moves `playheadFrame`, this effect asks for the Frame under it with
+  // While stopped, this is the only place in the editor that asks for a Frame, and it is how the
+  // Playhead reaches the engine (T049): a drag moves `playheadFrame`, this effect asks for the Frame under it with
   // `scrub`, and the client's latest-wins guard keeps a fast drag to one request in flight. The
   // Timeline itself only ever calls `setPlayhead`; a second caller here would be a second opinion
   // about which Frame the Preview should show.
@@ -244,15 +293,24 @@ export function EditorLayout() {
   // `renderer` is a reason to ask again too: it is set when the engine answers `ready`, and a Frame
   // asked for before then is answered `frames-dropped`. A Project reopened with every Source Offline
   // changes nothing else afterwards, so without it the Preview would wait for the Playhead to move.
+  //
+  // **While playing, this effect posts the Scene and asks for nothing** (T062). The transport asks
+  // for the clock's Frame on every animation frame, and the Playhead follows what the engine drew —
+  // so the Playhead moving is an effect of a Frame request, not a reason for one, and asking again
+  // here would be a scrub that tells the worker to abandon its streaming iterators. `scrubFrame`
+  // is `null` while playing so a moving Playhead does not even re-run this effect; on stop it is the
+  // Playhead the transport left, and the scrub request for it makes sure that is the picture that
+  // stays. One requester at a time, and the client's latest-wins guard covers both.
   useEffect(() => {
     if (engine === null || scene === null) return
     engine.postScene(sceneRevision, scene)
-    engine.renderFrame(playheadFrame, "scrub")
-  }, [engine, scene, sceneRevision, playheadFrame, sourceStatus, renderer])
+    if (scrubFrame === null) return
+    engine.renderFrame(scrubFrame, "scrub")
+  }, [engine, scene, sceneRevision, scrubFrame, sourceStatus, renderer])
 
   return (
     <div data-testid="editor-shell" className="flex h-svh flex-col overflow-hidden">
-      <TopBar />
+      <TopBar transport={transport} />
 
       <div className="flex min-h-0 flex-1">
         <SourcesPanel tracker={tracker} />
@@ -279,12 +337,8 @@ export function EditorLayout() {
             )}
           </div>
           <div className="flex shrink-0 items-center gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
-            <span data-testid="playhead">{frameLabel(playheadFrame)}</span>
-            <span data-testid="preview-shown">
-              {shown === null
-                ? "nothing rendered yet"
-                : `showing ${frameLabel(shown.frame)} of Scene ${shown.revision}`}
-            </span>
+            <PlayheadLabel />
+            <ShownLabel engine={engine} />
             <span data-testid="engine-renderer" className="ml-auto">
               {renderer === null ? "engine starting" : `engine: ${renderer}`}
             </span>

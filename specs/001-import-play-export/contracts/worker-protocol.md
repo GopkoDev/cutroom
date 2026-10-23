@@ -54,8 +54,11 @@ ignores any scene older than the one it holds. Throttled during continuous gestu
 ```
 
 Requests one Frame. `scrub` abandons any streaming iterators and uses random access; `clock`
-continues the streaming path. The worker may coalesce: if newer requests arrive while one is in
-flight, older ones are dropped rather than queued (FR-012).
+continues the streaming path while the transport is `playing` (and is served by random access
+while it is `stopped`). The worker may coalesce: if newer requests arrive while one is in flight,
+older ones are dropped rather than queued (FR-012). Every request is answered by exactly one
+`frame-rendered` or `frames-dropped`, unless it is lost outright (invariant 3). A `clock` request
+is also how the worker learns where the Playhead is, which bounds how far ahead it decodes sound.
 
 **This is not a request/response pair, and must not be implemented as one.** It carries no id and
 gets no matching reply, because the whole point of FR-012 is that a request may be superseded and
@@ -74,7 +77,11 @@ always comes.
 { type: "transport", state: "playing" | "stopped", fromFrame: integer }
 ```
 
-Lets the worker open or close streaming iterators at the right moment.
+Lets the worker open or close streaming iterators at the right moment, and start or stop
+decoding sound (`audio-pcm`). `playing` starts a playback run from `fromFrame`: iterators and audio
+decode from any earlier run are closed and both start again there. **A seek during playback is a
+second `playing`** with the new `fromFrame` — that is how the worker tells a jump of the clock
+from a lag. `stopped` closes everything.
 
 ### `export-start`
 
@@ -113,9 +120,9 @@ The worker aborts encoding, closes the writable stream without finalizing, and r
 | `ready` | `{ capabilities }` | Init succeeded; carries the results of the `canEncode` probes. |
 | `source-attached` | `{ sourceId, duration, timebase, dimensions, hasAudio, codecs }` | Metadata read from the file. `duration` and `timebase` are exact rationals in the Source's own timescale — the Principle II exception, and the only seconds that cross this boundary. |
 | `source-failed` | `{ sourceId, reason }` | Undecodable or unreadable; the main thread reports it and leaves the Project unchanged (FR-003). |
-| `frame-rendered` | `{ frame, revision }` | The canvas now shows this Frame of this Scene revision. An announcement, not a reply: it is not correlated to any one request, and a Frame that was asked for twice is announced once. |
-| `frames-dropped` | `{ count }` | Diagnostic only; never surfaced as an error. Also the answer to a `render-frame` the worker cannot serve at all — one asked for before any Scene arrived — since there is no Scene revision to name in a `frame-rendered`. |
-| `audio-pcm` | `{ sourceId, channels: Float32Array[], startSample }` | Decoded audio for playback scheduling, transferred. |
+| `frame-rendered` | `{ frame, revision, skipped }` | The canvas now shows this Frame of this Scene revision. An announcement, not a reply: it is not correlated to any one request. `skipped` is how many Frames playback passed over, never shown, to reach this one — the Frames strictly between the previous Frame rendered in this playback run (or the run's `fromFrame`) and this one; always 0 for `scrub`. It is carried here, not as a `frames-dropped`, so that every request still gets exactly one answer. |
+| `frames-dropped` | `{ count }` | Diagnostic only; never surfaced as an error. Requests the worker was sent and did not render: displaced by a newer one while waiting (FR-012), or not servable at all — one asked for before any Scene arrived — since there is no Scene revision to name in a `frame-rendered`. Frames playback skipped without being asked for are `frame-rendered.skipped`. |
+| `audio-pcm` | `{ sourceId, clipId, sampleRate, channels: Float32Array[], startSample }` | Decoded sound of one Clip for playback scheduling, transferred, sent during a playback run up to two seconds ahead of the Playhead. `startSample` is a position **on the Timeline**, on the grid `frameToSampleIndex(timebase, sampleRate, frame)` lays down: the Clip's start and in-point are already applied and the PCM is trimmed to the Frames the Clip covers, so the receiver maps nothing. `sampleRate` is the Source's own. The same `clipId` and `startSample` always carry the same sound, so PCM from a run a seek replaced is still right where it lands; a receiver schedules each sample of a Clip once. No end-of-stream marker: a Clip's sound ends where the Clip does. **Unbroken** (T070): for a Clip whose Source has sound, every sample from the run's first (`fromFrame`, or the Clip's start) to the Clip's end is sent, as silence where the track has none — it starts after the in-point, skips, or ends before the Clip — so a receiver can wait for the sound at the start of a run and know it is waiting for something that will come. A Source without sound sends nothing — silence is valid. |
 | `export-audio-ack` | `{ startSample }` | The chunk was encoded; the main thread may send the next one. This is the backpressure signal — without it the mixer outruns the encoder. |
 | `export-progress` | `{ framesDone, framesTotal }` | Drives the progress display. |
 | `export-done` | `{ bytes }` | The stream was finalized and closed. |

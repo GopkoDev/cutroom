@@ -15,13 +15,24 @@ frameToSampleIndex(timebase, sampleRate, frame): integer
 framesForDuration(timebase, duration): integer  // duration is an exact ratio, not a float
                                                 // counts Frames whose start is inside the media
 frameToSourceTime(timebase, sourceInPoint, frame): { numerator, denominator }
+sourceTimeBefore(time, duration): { numerator, denominator }  // exact; clamps at 0
 frameToTimecode(timebase, frame): { hours, minutes, seconds, frames }
                                                 // wall-clock, not SMPTE; frames = offset in second
 
 // A Source's own clock — ticks of a container timescale, never Frames of the Project
 secondsToTicks(ticksPerSecond, seconds): integer  // recovers a stored integer; may be negative
 ticksToSeconds(ticksPerSecond, ticks): { numerator, denominator }
+sourceTimeToTicks(ticksPerSecond, time): integer  // an exact Source time on a clock, e.g. a
+                                                  // Clip's in-point as a sample index
 timebaseFromTicks(ticksPerSecond, frames, spanTicks): Timebase  // measures a Source Timebase
+
+// Playback on the audio clock — anchor = { frame, contextSeconds }: Frame `frame` begins to sound
+// when AudioContext.currentTime reads `contextSeconds` (ADR 0008)
+frameToContextTime(timebase, anchor, frame): number           // when a Frame begins to sound
+frameAtContextTime(timebase, anchor, contextSeconds): integer // the last Frame begun: floor, not
+                                                              // nearest; the anchor's before it
+timelineSampleToContextTime(timebase, anchor, sampleRate, sample): number
+                                                // a Timeline-grid sample (audio-pcm) on the clock
 ```
 
 **Contract**
@@ -37,6 +48,7 @@ question differs, and each is stated once here and argued once, at its definitio
 | `frameToSampleIndex` | Nearest sample, computed from the absolute Frame and never accumulated, so error stays ≤ half a sample however long the Timeline. |
 | `framesForDuration` | Rounds **up**: a count of n means indices 0 … n − 1, and the last Frame still starts inside the media. Truncating discards a real Frame. |
 | `secondsToTicks` | Nearest tick, the same tie rule. It recovers an integer the container stored from a demuxer's `ticks / clock` float, so it absorbs one division's last-bit error and involves no rate. |
+| `sourceTimeToTicks` | Nearest tick, the same tie rule, computed exactly from the rational. Where the time is a Frame boundary it agrees with `frameToSampleIndex`, so a Clip's sound and picture start on the same sample. |
 | `frameToTimecode` | Exact, no tie to break: the second is floor(frame ÷ Timebase), and that second's first Frame is ceil(second × Timebase) — the same count `framesForDuration` gives. |
 
 - Where a container states how many Frames a Source actually holds, that fact beats

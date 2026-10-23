@@ -22,8 +22,14 @@ import { defineConfig, devices } from "@playwright/test"
 // over a fixture, and read the fixtures from `packages/engine/test/fixtures/`. Recorded here so
 // that is discovered once rather than in each spec.
 
-const port = 5173
+// The default run reuses the dev server on 5173 if one is up. A watched server hot-reloads CSS and
+// modules into the page under test whenever a file changes, which corrupts timing measurements and,
+// after model or engine edits, can leave a spec driving a second store instance. So the `@slow`
+// measurements always start a fresh server of their own, and `CUTROOM_E2E_PORT` gives any run one.
+const slow = Boolean(process.env.CUTROOM_E2E_SLOW)
+const port = Number(process.env.CUTROOM_E2E_PORT ?? (slow ? 5191 : 5173))
 const baseURL = `http://localhost:${port}`
+const reuseExistingServer = !process.env.CI && !slow && process.env.CUTROOM_E2E_PORT === undefined
 
 export default defineConfig({
   testDir: "./e2e",
@@ -34,6 +40,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
   timeout: 60_000,
+  // The two ten-minute measurements (T069 A/V sync, T072 sustained rate) are tagged `@slow` and
+  // left out of the default run, which they would lengthen by over twenty minutes. Run them on
+  // their own, one after the other: `pnpm test:e2e:slow` (sets CUTROOM_E2E_SLOW=1, greps @slow).
+  grepInvert: slow ? undefined : /@slow/,
   reporter: [["list"], ["html", { open: "never" }]],
 
   use: {
@@ -52,7 +62,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm exec vite --port ${port} --strictPort`,
     url: baseURL,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer,
     timeout: 120_000,
   },
 })

@@ -14,14 +14,16 @@
 //
 // What this module does *not* do is decide anything. It holds no editing logic, projects no Scene,
 // converts no time and rounds no number — `packages/model` owns every conversion (R7, Principle
-// II), and the main thread owns the Project (invariant 1). The worker's entire state is three
-// values: a renderer, the newest Scene, and that Scene's revision.
+// II), and the main thread owns the Project (invariant 1). The worker's state is a renderer, the
+// scheduler every Render and transport change goes through, the playback decode of sound, the
+// newest Scene, and that Scene's revision.
 
 import type { Scene } from "@cutroom/model"
 
 import { probeCapabilities } from "./capabilities"
 import { createSceneRenderer, type SceneRenderer } from "./compose/renderer"
-import { createScrub, type Scrub } from "./playback/scrub"
+import { createScheduler, type Scheduler } from "./playback/scheduler"
+import { createAudioPlayback } from "./sources/audio"
 import { attachSource, releaseSource } from "./sources/attach"
 import type {
   EngineEvent,
@@ -29,6 +31,7 @@ import type {
   RenderFrameMessage,
   SceneMessage,
   ToEngine,
+  TransportMessage,
 } from "./protocol"
 
 /**
@@ -89,8 +92,14 @@ function fail(error: unknown): void {
 
 let renderer: SceneRenderer | null = null
 
-/** The Frame-request latch over `renderer`, made with the first `render-frame` that can be served. */
-let scrub: Scrub | null = null
+/**
+ * Every Render and every transport change, one at a time and newest first (playback/scheduler.ts).
+ * Made with the renderer, at `init`.
+ */
+let scheduler: Scheduler | null = null
+
+/** Sound for playback, decoded ahead of the Playhead and sent as `audio-pcm` (sources/audio.ts). */
+const audio = createAudioPlayback((event, transfer) => send(event, transfer), fail)
 
 /**
  * The newest Scene the worker has been given, and its revision.
@@ -123,6 +132,11 @@ async function initialise(message: InitMessage): Promise<void> {
 
   const created = await createSceneRenderer(message.canvas, message.frameSize)
   renderer = created
+  scheduler = createScheduler(created, {
+    rendered: (frame, revision, skipped) =>
+      send({ type: "frame-rendered", frame, revision, skipped }),
+    dropped: (count) => send({ type: "frames-dropped", count }),
+  })
 
   send({
     type: "ready",
@@ -150,6 +164,8 @@ function replaceScene(message: SceneMessage): void {
   if (sceneRevision !== null && message.revision <= sceneRevision) return
   scene = message.scene
   sceneRevision = message.revision
+  // Sound already decoding for a Clip that has moved is sound for the wrong place.
+  audio.scene(message.scene)
 }
 
 /**
@@ -161,23 +177,47 @@ function replaceScene(message: SceneMessage): void {
  * of startup, not a fault — `frames-dropped` is the protocol's own channel for saying so, and it
  * is explicitly diagnostic and never surfaced as an error.
  *
- * Everything past that check is playback/scrub.ts: the Frame is rendered by random access, and a
- * request that arrives while a Render is in flight waits behind it, displacing — and reporting as
- * dropped — any older request already waiting (FR-012). `clock` requests take the same path for
- * now: the streaming iterators `clock` is meant to continue arrive with playback, and until then a
- * seek is the correct, merely slower, way to answer one.
+ * Everything past that check is playback/scheduler.ts: a `scrub` is rendered by random access, a
+ * `clock` Frame during playback from the Clips' streams, and a request that arrives while a
+ * Render is in flight waits behind it, displacing — and reporting as dropped — any older request
+ * already waiting (FR-012).
+ *
+ * A `clock` Frame is also the Playhead moving, which is what lets sound be decoded further ahead.
+ * It is passed on before the Frame is rendered, not after: sound must never wait for picture.
  */
 function renderFrame(message: RenderFrameMessage): Promise<void> {
-  if (renderer === null || scene === null || sceneRevision === null) {
+  if (message.reason === "clock") audio.playhead(message.frame)
+
+  if (scheduler === null || scene === null || sceneRevision === null) {
     send({ type: "frames-dropped", count: 1 })
     return Promise.resolve()
   }
-
-  scrub ??= createScrub(renderer, {
-    rendered: (frame, revision) => send({ type: "frame-rendered", frame, revision }),
-    dropped: (count) => send({ type: "frames-dropped", count }),
+  return scheduler.request({
+    scene,
+    revision: sceneRevision,
+    frame: message.frame,
+    reason: message.reason,
   })
-  return scrub.request({ scene, revision: sceneRevision, frame: message.frame })
+}
+
+/**
+ * Starts, restarts (a seek) or stops a playback run.
+ *
+ * Sound first, because it is the clock (ADR 0008): its decode starts the moment `playing` arrives,
+ * not after a Render already in flight. The picture's side — closing the old run's iterators and
+ * opening the new run's at `fromFrame` — goes through the scheduler, since it must not happen
+ * under a Render drawing from those iterators.
+ *
+ * Before the first Scene there is nothing to decode or open, but the scheduler still records that
+ * playback is running, so the clock Frames that follow are rendered as playback. Before `init`
+ * there is no scheduler and nothing to record: the main thread has not been told `ready`.
+ */
+function changeTransport(message: TransportMessage): Promise<void> {
+  if (message.state === "playing" && scene !== null) audio.play(scene, message.fromFrame)
+  else audio.stop()
+
+  if (scheduler === null) return Promise.resolve()
+  return scheduler.transport({ state: message.state, fromFrame: message.fromFrame, scene })
 }
 
 /**
@@ -217,6 +257,9 @@ async function handle(message: ToEngine): Promise<void> {
       return
 
     case "transport":
+      await changeTransport(message)
+      return
+
     case "export-start":
     case "export-audio-chunk":
     case "export-cancel":

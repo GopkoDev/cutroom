@@ -155,7 +155,8 @@ Exporting requirements it belongs to rather than in numeric order at the end.
 **Playback**
 
 - **FR-010**: Users MUST be able to start and stop playback, and playback MUST begin from the
-  Playhead's current Frame.
+  Playhead's current Frame — except when the Playhead is on or past the Timeline's last Frame,
+  where Play starts again from Frame 0, as in common editors and players.
 - **FR-011**: Sound MUST determine the pace of playback; picture MUST follow it.
 - **FR-012**: When the product cannot produce Frames fast enough, it MUST skip picture updates
   rather than interrupt or slow the sound.

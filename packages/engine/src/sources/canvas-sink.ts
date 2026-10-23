@@ -38,9 +38,14 @@
 // 4K Source in a 1080p Project is never held, copied or uploaded at 4K. The fit itself is the
 // compositor's rule (`fitInside`, compose/scene-clip.ts), asked here rather than restated.
 
-import { CanvasSink, InputDisposedError, type InputVideoTrack } from "mediabunny"
+import {
+  CanvasSink,
+  InputDisposedError,
+  type InputVideoTrack,
+  type WrappedCanvas,
+} from "mediabunny"
 
-import type { PixelSize, SceneClip } from "@cutroom/model"
+import type { Frame, PixelSize, SceneClip } from "@cutroom/model"
 
 import { fitInside, type Placement } from "../compose/scene-clip"
 import { getAttachedSource } from "./attach"
@@ -65,31 +70,67 @@ export interface ClipSink {
    */
   pull(seconds: number): Promise<SinkPicture | null>
 
-  /** Ends the loan on the last picture pulled. Call once it has been drawn. Idempotent. */
+  /**
+   * Ends the loan on the last picture pulled. Call once it has been drawn. Idempotent.
+   *
+   * With a stream open, this is also the moment the stream starts decoding its next picture: not
+   * before, because that picture is drawn into the very canvas just released.
+   */
   release(): void
+
+  /**
+   * Opens a streaming iterator over this Clip (R2), closing any already open: a
+   * `canvasesAtTimestamps` walk that yields one picture per Frame, in order, starting at `first`.
+   * `timestamps` are those Frames' Source times, one per Frame, as playback/stream.ts maps them;
+   * `key` names what they were mapped from, so a stream opened for one placement of the Clip is
+   * never continued for another.
+   *
+   * The first picture starts decoding at once unless a picture is on loan, in which case it starts
+   * when that loan ends — the same draw-before-next-pull rule as every other pull.
+   */
+  openStream(key: string, first: Frame, timestamps: Iterable<number>): void
+
+  /** Where the open stream is — what it was opened for and the Frame it yields next — or `null`. */
+  stream(): { readonly key: string; readonly next: Frame } | null
+
+  /**
+   * The picture at `frame` from the open stream, decoding forward through any Frames before it
+   * and drawing none of them, or `null` when there is none to show (no picture at that time, the
+   * stream ran out, or the Source was detached mid-decode — the stream is then closed).
+   *
+   * `frame` must be at or after `stream().next`: a stream only goes forward, and going back is
+   * opening a new one. Subject to the pooling caveat like `pull`.
+   */
+  pullStreamed(frame: Frame): Promise<SinkPicture | null>
 
   /**
    * Closes the streaming iterator this Clip is being played through, if there is one.
    *
    * Scrubbing calls this before anything else (R2): a scrub is random access, and an iterator
-   * left open would keep decoding forward from a position the user has already left. No path in
-   * this build opens one — the clock path that does is later work — so today this always finds
-   * nothing to close, and it is here so that the rule has one place to live when it does.
+   * left open would keep decoding forward from a position the user has already left. Stopping
+   * playback calls it too (`abandonStreams`), so a stopped Preview holds no decoder running ahead.
    */
   abandonStream(): void
 }
 
-/**
- * A streaming iterator held for a Clip during playback. Typed loosely on purpose: whichever of
- * `canvases()` / `canvasesAtTimestamps()` the clock path settles on, closing it is `return()`.
- */
-type Stream = AsyncGenerator<unknown, void, unknown>
+/** The streaming iterator held for a Clip during playback, and where it has got to. */
+interface Stream {
+  readonly iterator: AsyncGenerator<WrappedCanvas | null, void, unknown>
+  readonly key: string
+  /** The Frame the iterator yields next. */
+  next: Frame
+  /**
+   * The iterator's next result, already asked for: decoding ahead of the request is what makes a
+   * stream cheaper than a seek. Only ever asked for while no picture is on loan.
+   */
+  head: Promise<IteratorResult<WrappedCanvas | null, void>> | null
+}
 
 interface Entry extends ClipSink {
   /** The track and frame size this sink was built for; either changing means a new sink. */
   readonly track: InputVideoTrack
   readonly frameSize: PixelSize
-  stream: Stream | null
+  current: Stream | null
 }
 
 /** The sink of every SceneClip that was visible in the last Frame rendered, by `clipId`. */
@@ -158,55 +199,141 @@ export async function sinkForClip(clip: SceneClip, frameSize: PixelSize): Promis
     poolSize: 1,
   })
 
+  // On loan from the moment a pull starts, not from the moment it answers: a pull in progress is
+  // about to draw into the pooled canvas, and a stream decoding ahead must not draw there first.
   let onLoan = false
+
+  function refuseSecondPull(): void {
+    if (onLoan) {
+      throw new Error(
+        `CanvasSink for Clip ${clip.clipId}: pulled again before the last picture was drawn; ` +
+          "the sink recycles its canvas, so that picture would be overwritten (R1)"
+      )
+    }
+  }
+
+  /** The picture a sink handed over, as a loan — or `null`, which ends the loan at once. */
+  function lend(wrapped: WrappedCanvas | null): SinkPicture | null {
+    if (wrapped === null) {
+      onLoan = false
+      return null
+    }
+    // `document` does not exist in a worker, so Mediabunny always creates an OffscreenCanvas
+    // here; the check is what lets the type say so.
+    if (!(wrapped.canvas instanceof OffscreenCanvas)) {
+      throw new Error("CanvasSink returned an HTMLCanvasElement inside the engine worker")
+    }
+    return { canvas: wrapped.canvas, placement }
+  }
+
+  /** Starts decoding the open stream's next picture, if nothing is on loan and none is started. */
+  function decodeAhead(): void {
+    const stream = entry.current
+    if (onLoan || stream === null || stream.head !== null) return
+    const head = stream.iterator.next()
+    // Awaited later, by `pullStreamed`, which handles its rejection; until then it must not count
+    // as an unhandled one, or a Source detached between Frames would reach `fatal`.
+    head.catch(() => undefined)
+    stream.head = head
+  }
+
   const entry: Entry = {
     clipId: clip.clipId,
     sourceId: clip.sourceId,
     track,
     frameSize: { width: frameSize.width, height: frameSize.height },
-    stream: null,
+    current: null,
 
     async pull(seconds: number): Promise<SinkPicture | null> {
-      if (onLoan) {
-        throw new Error(
-          `CanvasSink for Clip ${clip.clipId}: pulled again before the last picture was drawn; ` +
-            "the sink recycles its canvas, so that picture would be overwritten (R1)"
-        )
-      }
-      let wrapped
+      refuseSecondPull()
+      onLoan = true
       try {
-        wrapped = await sink.getCanvas(seconds)
+        return lend(await sink.getCanvas(seconds))
       } catch (error) {
+        onLoan = false
         // The Source was detached mid-decode — `releaseSource` disposes the `Input`, which cancels
         // every sink operation on it. An Offline Source renders empty; it is not a fault.
         if (error instanceof InputDisposedError) return null
         throw error
       }
-      if (wrapped === null) return null
-      onLoan = true
-      // `document` does not exist in a worker, so Mediabunny always creates an OffscreenCanvas
-      // here; the check is what lets the type say so.
-      if (!(wrapped.canvas instanceof OffscreenCanvas)) {
-        throw new Error("CanvasSink returned an HTMLCanvasElement inside the engine worker")
-      }
-      return { canvas: wrapped.canvas, placement }
     },
 
     release(): void {
       onLoan = false
+      decodeAhead()
+    },
+
+    openStream(key: string, first: Frame, timestamps: Iterable<number>): void {
+      entry.abandonStream()
+      entry.current = {
+        iterator: sink.canvasesAtTimestamps(timestamps),
+        key,
+        next: first,
+        head: null,
+      }
+      decodeAhead()
+    },
+
+    stream() {
+      const stream = entry.current
+      return stream === null ? null : { key: stream.key, next: stream.next }
+    },
+
+    async pullStreamed(frame: Frame): Promise<SinkPicture | null> {
+      refuseSecondPull()
+      const stream = entry.current
+      if (stream === null) {
+        throw new Error(`CanvasSink for Clip ${clip.clipId}: pullStreamed with no stream open`)
+      }
+      if (frame < stream.next) {
+        throw new RangeError(
+          `CanvasSink for Clip ${clip.clipId}: Frame ${frame} is behind the stream, which is at ` +
+            `Frame ${stream.next}; a stream only goes forward`
+        )
+      }
+
+      onLoan = true
+      try {
+        for (;;) {
+          const pending = stream.head ?? stream.iterator.next()
+          stream.head = null
+          const result = await pending
+          if (result.done === true) {
+            if (entry.current === stream) entry.current = null
+            return lend(null)
+          }
+          const at = stream.next
+          stream.next = at + 1
+          // A Frame playback has already passed: decoded, because the decoder cannot skip it, and
+          // never drawn. Its canvas is the pooled one and is about to be overwritten — which is
+          // the point, since nobody is going to look at it.
+          if (at < frame) continue
+          return lend(result.value)
+        }
+      } catch (error) {
+        onLoan = false
+        if (entry.current === stream) entry.current = null
+        if (error instanceof InputDisposedError) return null
+        throw error
+      }
     },
 
     abandonStream(): void {
-      const stream = entry.stream
-      entry.stream = null
+      const stream = entry.current
+      entry.current = null
       // `return()` on a generator suspended inside Mediabunny's decode loop settles once the loop
       // unwinds; nothing waits for it, but a rejection there must not become an unhandled one.
-      if (stream !== null) void stream.return(undefined).catch(() => undefined)
+      if (stream !== null) void stream.iterator.return(undefined).catch(() => undefined)
     },
   }
 
   sinks.set(clip.clipId, entry)
   return entry
+}
+
+/** Closes every Clip's streaming iterator, keeping the sinks: playback has stopped, or restarted. */
+export function abandonStreams(): void {
+  for (const entry of sinks.values()) entry.abandonStream()
 }
 
 /**
