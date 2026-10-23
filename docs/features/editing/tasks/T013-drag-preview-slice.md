@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/store/drag.ts", "apps/editor/src/store/drag.test.t
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T013 — Add the drag-preview slice and retire the open-Gesture save debounce
 

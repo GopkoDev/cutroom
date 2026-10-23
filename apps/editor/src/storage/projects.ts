@@ -176,8 +176,8 @@ export async function loadProject(id: string): Promise<Project | undefined> {
  *     caller holds is still intact — rather than in a session the user has already closed.
  *   * The validation is the model's, in the model, once. This file states no rule of its own.
  *
- * The cost is a rebuild per write, which is why the edits *inside* a gesture are debounced
- * (`createProjectSaver`) rather than written per pointer move; a finished gesture is written at once
+ * The cost is a rebuild per write, which is why saves are coalesced (`createProjectSaver`) and why
+ * a drag writes nothing until it is released (ADR 0020); a finished gesture is written at once
  * (the store's `writeNow`).
  *
  * No timestamp is stamped here. `modifiedAt` comes from the command that made the edit, so that
@@ -208,12 +208,6 @@ export type SaveFailureHandler = (error: unknown, project: Project) => void
 export interface ProjectSaverOptions {
   /** Quiet time before a write, in milliseconds. */
   readonly delayMs?: number
-  /**
-   * The longest an edit may sit unwritten while edits keep arriving. A plain debounce never fires
-   * during a continuous gesture — a drag, or a name being typed — so this bounds what is at risk
-   * if the tab goes away mid-gesture.
-   */
-  readonly maximumDelayMs?: number
   /** Called when a write throws. */
   readonly onFailure?: SaveFailureHandler
   /**
@@ -257,7 +251,6 @@ export interface ProjectSaver {
  */
 export function createProjectSaver(options: ProjectSaverOptions = {}): ProjectSaver {
   const delayMs = options.delayMs ?? 500
-  const maximumDelayMs = options.maximumDelayMs ?? 2000
   const write = options.write ?? saveProject
   const onFailure =
     options.onFailure ??
@@ -268,7 +261,6 @@ export function createProjectSaver(options: ProjectSaverOptions = {}): ProjectSa
     })
 
   let outstanding: Project | null = null
-  let outstandingSince = 0
   let timer: ReturnType<typeof setTimeout> | undefined
   let draining: Promise<void> | null = null
   let closed = false
@@ -304,16 +296,17 @@ export function createProjectSaver(options: ProjectSaverOptions = {}): ProjectSa
     save(project) {
       if (closed) throw new Error("createProjectSaver: this saver is closed")
 
-      if (outstanding === null) outstandingSince = Date.now()
       outstanding = project
 
-      const deadline = outstandingSince + maximumDelayMs - Date.now()
-      const wait = Math.max(0, Math.min(delayMs, deadline))
+      // A plain debounce. It once also had an upper bound for edits arriving continuously during
+      // an open drag; since a drag is a preview that writes nothing until it is released, and a
+      // finished Gesture is flushed at once by the store, that bound had nothing left to bound and
+      // was retired (ADR 0020).
       if (timer !== undefined) clearTimeout(timer)
       timer = setTimeout(() => {
         timer = undefined
         void drain()
-      }, wait)
+      }, delayMs)
     },
 
     async flush() {

@@ -276,7 +276,7 @@
         "apps/editor/src/storage/projects.ts"
       ],
       "file": "docs/features/editing/tasks/T013-drag-preview-slice.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T014",

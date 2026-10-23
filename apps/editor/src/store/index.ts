@@ -63,8 +63,10 @@
 //     transaction, an undo, a redo. The store is idle afterwards, and an edit the user has watched
 //     land is the edit a reload straight after it must keep. These are one write per thing the user
 //     did, so there is nothing for a debounce to save.
-//   * **Edits inside an open gesture are debounced** (500 ms quiet, 2 s at most), because a drag
-//     emits a command per pointer move and rebuilding the document for each would be the cost.
+//   * **A drag writes nothing until it is released.** It is a preview beside the Project
+//     (`drag.ts`, ADR 0020), so no editing Gesture issues commands while it is open, and the
+//     old 2-second upper bound for edits inside an open gesture is gone. What `beginTransaction`
+//     collects is still written at its close, like any finished gesture.
 //   * **Whatever is outstanding is written as the page is hidden or unloaded** — `visibilitychange`
 //     to `hidden` and `pagehide`; see `flushWhenLeaving`.
 //
@@ -84,6 +86,7 @@ import {
 } from "@/storage/projects"
 import { storageProblem, technicalDetail } from "@/ui/failure-wording"
 
+import type { DragPreview } from "./drag"
 import { allClipIds, prune, toggle } from "./selection"
 
 // `applyCommand` already enables patches in the model's copy of Immer. Repeated here because
@@ -193,6 +196,11 @@ export interface EditorState {
    * in history, never saved; pruned after every undo and redo to Clips that exist (AC-15).
    */
   readonly selection: readonly string[]
+  /**
+   * The drag being made, or `null` (ADR 0020). A preview beside the Project: never saved, never
+   * in history, never posted to the engine. Undo and redo are unavailable while it is open.
+   */
+  readonly drag: DragPreview | null
 
   // ------------------------------------------------------------------------ what the engine sees
   /**
@@ -230,6 +238,9 @@ export interface EditorState {
   beginTransaction(label: string): Transaction
   undo(): void
   redo(): void
+
+  /** Opens, updates or closes the drag preview; `store/drag.ts` is the only caller. */
+  setDrag(drag: DragPreview | null): void
 
   /** Makes `clipId` the only selected Clip. */
   select(clipId: string): void
@@ -289,12 +300,12 @@ export function nextRedoLabel(state: EditorState): string | null {
 }
 
 export function canUndo(state: EditorState): boolean {
-  return state.past.length > 0 && state.openTransaction === null
+  return state.past.length > 0 && state.openTransaction === null && state.drag === null
 }
 
 /** Redo is available when there is something to redo and no gesture is still being made. */
 export function canRedo(state: EditorState): boolean {
-  return state.future.length > 0 && state.openTransaction === null
+  return state.future.length > 0 && state.openTransaction === null && state.drag === null
 }
 
 /** What the store reaches outside itself for. Replaced only in unit tests, which have no IndexedDB. */
@@ -343,6 +354,7 @@ const NO_PROJECT = {
   sourceOffline: {},
   engineFatal: null,
   selection: [],
+  drag: null,
 } as const
 
 /**
@@ -472,6 +484,9 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
           `cannot undo while the transaction ${state.openTransaction} is open — close the gesture first`
         )
       }
+      // A drag preview open is a Gesture not yet made: there is nothing of it to take back, and
+      // the step before it must wait until it is released or cancelled (AC-18, ADR 0020).
+      if (state.drag !== null) return
       const entry = state.past.at(-1)
       if (entry === undefined) return
 
@@ -493,6 +508,9 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
           `cannot redo while the transaction ${state.openTransaction} is open — close the gesture first`
         )
       }
+      // A drag preview open is a Gesture not yet made: there is nothing of it to take back, and
+      // the step before it must wait until it is released or cancelled (AC-18, ADR 0020).
+      if (state.drag !== null) return
       const entry = state.future[0]
       if (entry === undefined) return
 
@@ -563,6 +581,10 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       undo,
       redo,
       openProject,
+
+      setDrag(drag) {
+        set({ drag })
+      },
 
       select(clipId) {
         set({ selection: [clipId] })
