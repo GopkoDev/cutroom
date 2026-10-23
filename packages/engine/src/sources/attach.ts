@@ -1,5 +1,5 @@
 // `attach-source`: what a Source is, read from the file itself — or why it cannot be one
-// (FR-002, FR-003, contracts/worker-protocol.md).
+// (FR-002, FR-003, contracts/events.md).
 //
 // The main thread has resolved a handle and its permission and hands over a `File`; this module
 // never sees a handle (ADR 0005). It opens a Mediabunny `Input` over a `BlobSource`, which reads

@@ -18,3 +18,7 @@ packages/engine/test/fixtures/*
 
 # Local-only development plan view — regenerate rather than track
 plan.html
+
+# SDD (Claude Code plugin sdd@sdd): per-developer settings and the implement engine's worktrees
+.claude/*.local.md
+.worktrees/

@@ -27,7 +27,8 @@ packages/engine    The worker: Mediabunny decode, PixiJS compositing, Mediabunny
                    No React.
 apps/editor        The interface. Owns state, sound and the clock.
 docs/adr           Why things are the way they are.
-specs/             Feature specifications, plans and task lists (Spec Kit).
+docs/features/     One folder per feature: spec, architecture, contracts, tasks, test plan (SDD).
+docs/              Also the architecture map, the roadmap, the constitution and what was deferred.
 CONTEXT.md         The domain language. Identifiers in code follow it.
 ```
 
@@ -54,7 +55,7 @@ pnpm test           # Vitest: packages/model and apps/editor
 pnpm test:e2e       # Playwright, in Google Chrome
 pnpm test:e2e:slow  # the two ten-minute measurements
 pnpm typecheck
-pnpm lint           # docs check, ESLint, Prettier
+pnpm lint           # docs check, ESLint, Prettier (the docs check still expects the retired Spec Kit layout — see docs/architecture-map.md §Constraints)
 ```
 
 - **`pnpm test`** runs the unit tests of `packages/model` (Timebase arithmetic, the document,
@@ -73,18 +74,36 @@ pnpm lint           # docs check, ESLint, Prettier
 
 The e2e specs are measurements against one machine, so they run one at a time. What still needs
 a person — opening exports in QuickTime and VLC, the CPU-throttled playback check — is listed in
-[quickstart.md](./specs/001-import-play-export/quickstart.md).
+[quickstart.md](./docs/features/import-play-export/_evidence/quickstart.md).
 
 ## Reading order
 
 1. [CONTEXT.md](./CONTEXT.md) — the vocabulary. Everything else assumes it.
-2. [The constitution](./.specify/memory/constitution.md) — six principles the code must hold to.
-3. [docs/adr](./docs/adr) — the decisions, each with what it cost.
-4. [specs/001-import-play-export](./specs/001-import-play-export) — the current slice: import a
-   file, play it with sound in sync, export an MP4 that matches what you saw. `decisions.md` there
-   records what was settled while building it.
-5. [docs/future.md](./docs/future.md) — what was deliberately left out, and what each omission
-   will cost when it comes back.
+2. [The constitution](./docs/constitution.md) — six principles the code must hold to.
+3. [docs/architecture-map.md](./docs/architecture-map.md) — the code as it stands: modules,
+   conventions, datastores, where a new piece of work goes.
+4. [docs/adr](./docs/adr) — the decisions, each with what it cost.
+5. [docs/features/import-play-export](./docs/features/import-play-export/spec.md) — the current
+   slice: import a file, play it with sound in sync, export an MP4 that matches what you saw. Its
+   `sad.md` holds the architecture and what was settled while building it, and `_evidence/` the
+   measurements.
+6. [docs/roadmap.md](./docs/roadmap.md) and [docs/future.md](./docs/future.md) — what comes next,
+   what was deliberately left out, and what each omission will cost when it comes back.
+
+## How work is planned
+
+Features go through the [SDD](https://github.com/genkovich/sdd) Claude Code plugin (`sdd@sdd`,
+enabled in `.claude/settings.json`). Each stage writes one document under
+`docs/features/<slug>/` that the next stage reads:
+
+```text
+/sdd:specify <slug> → /sdd:clarify → /sdd:design → /sdd:sequences → /sdd:data-model → /sdd:api
+→ /sdd:tasks → /sdd:plan-tests → /sdd:implement → /sdd:review → /sdd:ship
+```
+
+`/sdd:survey` refreshes the architecture map, `/sdd:roadmap` the roadmap, and `/sdd:glossary`
+adds a term to `CONTEXT.md`. Per-developer settings live in `.claude/sdd.local.md` (gitignored;
+`/sdd:config` to tune).
 
 ## Non-obvious constraints
 

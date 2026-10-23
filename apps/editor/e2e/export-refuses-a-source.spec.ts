@@ -4,7 +4,7 @@ import { installFilePicker } from "./file-picker"
 import { importFixture, newProject } from "./playback"
 
 // Saving an export over a file a Source reads from is refused before anything is written
-// (decisions.md, "Saving over a linked Source is refused"; T075). The save picker's answer is
+// (spec.md §1, "saving the export over a Linked Source's own file is refused"; T075). The save picker's answer is
 // compared with every Source's handle through `isSameEntry` — here with real OPFS handles, so the
 // browser's own comparison is what decides — and a match ends in a plain refusal: no export
 // starts, the Source's file is byte for byte what it was, and the Source stays Linked.

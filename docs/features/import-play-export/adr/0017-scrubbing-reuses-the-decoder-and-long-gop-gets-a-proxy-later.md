@@ -1,0 +1,1 @@
+../../../adr/0017-scrubbing-reuses-the-decoder-and-long-gop-gets-a-proxy-later.md

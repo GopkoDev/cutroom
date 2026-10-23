@@ -16,7 +16,7 @@
 //   3. **Refuses a destination that is a Source's own file** — compared with every Source's handle
 //      through `FileSystemHandle.isSameEntry`, asked of the Source status tracker, which holds the
 //      handles (ADR 0004). Writing there would destroy the Source the export is reading from
-//      (decisions.md, "Saving over a linked Source is refused"). Nothing is opened or written, and
+//      (spec.md §1, "saving the export over a Linked Source's own file is refused"). Nothing is opened or written, and
 //      nothing is removed: the file is the user's Source, left exactly as it was.
 //   4. Opens the destination with `createWritable()` and transfers to the worker a plain stream
 //      forwarding to it (`forwardingWritable`; Chrome cannot transfer the file stream itself). The

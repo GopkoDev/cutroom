@@ -1,0 +1,1 @@
+../../../adr/0010-the-lovable-prototype-is-a-reference-not-a-codebase.md

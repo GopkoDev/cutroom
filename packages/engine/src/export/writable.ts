@@ -1,5 +1,5 @@
 // The export's destination, made transferable — the one piece of the export that runs on the main
-// thread (R4, worker-protocol `export-start`).
+// thread (R4, events.md `export-start`).
 //
 // Chrome does not transfer a `FileSystemWritableFileStream`: `postMessage` refuses it with a
 // `DataCloneError`, although the plain `WritableStream` it extends transfers fine. (Measured, not

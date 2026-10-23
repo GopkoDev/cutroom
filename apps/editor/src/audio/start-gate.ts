@@ -10,7 +10,7 @@
 // window is the graph's lookahead, so a start begins in the position steady playback is always in:
 // that much sound already in hand, whatever the main thread does next.
 //
-// The engine sends a Clip's sound unbroken — silence where its track has none (worker-protocol,
+// The engine sends a Clip's sound unbroken — silence where its track has none (events.md,
 // `audio-pcm`) — so coverage is decidable: a window not covered is sound not arrived yet, never
 // sound that does not exist. Positions are compared on the Timeline's sample grid, through the
 // model (R7); nothing here computes a time.

@@ -405,7 +405,7 @@ function parseTimeline(value: unknown, path: string): Timeline {
  * Validates an untrusted value and narrows it to a `Project`, or throws saying which field was
  * wrong and why.
  *
- * Refuses, in the words of contracts/model-api.md: non-integer Frame values, overlapping Clips,
+ * Refuses, in the words of contracts/public-api.md: non-integer Frame values, overlapping Clips,
  * non-positive durations, a Timebase that is not a positive ratio, and anything not round-trippable
  * through structured clone. It also refuses a document whose `schemaVersion` is not the current one
  * — an older document is `migrateProject`'s to open, and a newer one is nobody's.

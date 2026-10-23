@@ -86,7 +86,7 @@ import { TopBar } from "./TopBar"
  * What the engine is initialised with before any Project exists.
  *
  * Legitimate rather than a guess: `init.timebase` and `init.frameSize` are "a convenience for the
- * first Render only" and every `Scene` carries its own, which win (worker-protocol invariant 6). So
+ * first Render only" and every `Scene` carries its own, which win (events.md invariant 6). So
  * these size the raster until the first Scene arrives and are overwritten by it.
  */
 const BEFORE_ANY_PROJECT: { frameSize: PixelSize; timebase: Timebase } = {

@@ -3,7 +3,7 @@
 // A Scene is the Timeline as the renderer needs to see it: derived from the Project, never edited,
 // never stored. The main thread stays the sole owner of the Project and posts one of these whenever
 // the picture changes; the worker holds no editing logic and cannot drift out of sync (Principle
-// IV, worker-protocol invariant 1).
+// IV, events.md invariant 1).
 //
 // Three properties this module is built to hold.
 //
@@ -50,8 +50,8 @@ import type { Rational, Timebase } from "./timebase"
  *     instant of the Source a given Frame asks for.
  *   - `sourceInPoint` — where inside the Source the Clip begins, in the **Source's** own timescale
  *     as an exact ratio. The engine composes it with the Frame through `frameToSourceTime`
- *     (contracts/model-api.md, R7) rather than doing rate arithmetic of its own. This is Principle
- *     II's one exception and the only seconds allowed across this boundary (worker-protocol
+ *     (contracts/public-api.md, R7) rather than doing rate arithmetic of its own. This is Principle
+ *     II's one exception and the only seconds allowed across this boundary (events.md
  *     invariant 2).
  *
  * What is deliberately absent:

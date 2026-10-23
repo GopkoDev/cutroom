@@ -356,7 +356,7 @@ export function createAudioPlayback(
           let low = Math.max(lowest, written ?? lowest)
           if (at > low && low < to) {
             // The track has no sound here — it starts later than the Clip, or skips — so the Clip
-            // has silence, sent as such: a Clip's sound arrives unbroken (worker-protocol).
+            // has silence, sent as such: a Clip's sound arrives unbroken (events.md).
             const until = Math.min(at, to)
             silence(sample.sampleRate, sample.numberOfChannels, low, until - low)
             written = low = until
