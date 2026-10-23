@@ -21,7 +21,7 @@
 | T011 | Pin Frame accuracy and rule-command pairing with model property tests | tests | Dmytro Hopko | M | T010, T003 | done | COMMIT |
 | T012 | Cap history at 200 named steps and add the Selection, pruned after undo and redo | app | Dmytro Hopko | M | — | done | COMMIT |
 | T013 | Add the drag-preview slice and retire the open-Gesture save debounce | app | Dmytro Hopko | M | T012, T010 | done | COMMIT |
-| T014 | Write one store function per Gesture, stopping Playback first, with refusal wording | app | Dmytro Hopko | M | T013 | todo | — |
+| T014 | Write one store function per Gesture, stopping Playback first, with refusal wording | app | Dmytro Hopko | M | T013 | done | COMMIT |
 | T015 | Mix every Clip through one limiter with its measured delay, in Playback and Export | app | Dmytro Hopko | L | — | todo | — |
 | T016 | Rebuild the Timeline as Track rows of selectable Clip views with Track headers | ui | Dmytro Hopko | M | T014, T001 | todo | — |
 | T017 | Drive Trim and move drags from Clip handles and bodies through the drag slice | ui | Dmytro Hopko | M | T016 | todo | — |

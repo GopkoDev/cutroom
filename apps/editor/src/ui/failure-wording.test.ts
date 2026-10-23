@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   explainExportFailure,
+  explainRefusal,
   fileProblem,
   storageProblem,
   technicalDetail,
@@ -120,5 +121,44 @@ describe("explainExportFailure", () => {
       "a.mp4 could not be opened for writing."
     )
     expect(explainExportFailure("mixing", "x", "a.mp4").explanation).toMatch(/without the sound/)
+  })
+})
+
+describe("explainRefusal", () => {
+  it("words the five refusals the screens name, exactly", () => {
+    expect(explainRefusal("selection-not-under-frame").title).toBe(
+      "No selected Clip is under the Playhead."
+    )
+    expect(explainRefusal("nothing-under-frame").title).toBe("No Clip is under the Playhead.")
+    expect(explainRefusal("track-limit").title).toBe(
+      "A Project has at most two video Tracks for now."
+    )
+    expect(explainRefusal("last-track").title).toBe("A Project always keeps at least one Track.")
+  })
+
+  it("has non-empty words for every RefusalReason and both Split reasons, and for an unknown one", () => {
+    const reasons = [
+      "overlap",
+      "before-timeline-start",
+      "too-short",
+      "source-bounds",
+      "track-limit",
+      "last-track",
+      "nothing-to-split",
+      "unknown-clip",
+      "unknown-track",
+      "unknown-source",
+      "duplicate-id",
+      "no-project",
+      "invalid",
+      "selection-not-under-frame",
+      "nothing-under-frame",
+      "something-new",
+    ]
+    for (const reason of reasons) {
+      const words = explainRefusal(reason)
+      expect(words.title.trim(), reason).not.toBe("")
+      expect(words.explanation.trim(), reason).not.toBe("")
+    }
   })
 })

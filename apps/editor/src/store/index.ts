@@ -128,6 +128,15 @@ export interface FailureReport {
   readonly detail?: string
 }
 
+/** An edit that was refused: the reason, in the model's or `splitTargets`' code, and its words. */
+export interface EditRefusal {
+  readonly reason: string
+  readonly title: string
+  readonly explanation: string
+  /** The reducer's own message, for "Details", when the refusal was not one the User can act on. */
+  readonly detail?: string
+}
+
 /** What the engine said when it stopped (`fatal`), for the shell to show in the Preview's place. */
 export interface EngineFatalReport {
   readonly reason: string
@@ -201,6 +210,11 @@ export interface EditorState {
    * in history, never posted to the engine. Undo and redo are unavailable while it is open.
    */
   readonly drag: DragPreview | null
+  /**
+   * Why the last edit did not happen, for the refusal notice above the Tracks (screens.md S1), or
+   * `null`. Cleared by the next Gesture, by Escape and by its Dismiss action. Runtime state.
+   */
+  readonly editRefusal: EditRefusal | null
 
   // ------------------------------------------------------------------------ what the engine sees
   /**
@@ -239,6 +253,7 @@ export interface EditorState {
   undo(): void
   redo(): void
 
+  reportEditRefusal(refusal: EditRefusal | null): void
   /** Opens, updates or closes the drag preview; `store/drag.ts` is the only caller. */
   setDrag(drag: DragPreview | null): void
 
@@ -355,6 +370,7 @@ const NO_PROJECT = {
   engineFatal: null,
   selection: [],
   drag: null,
+  editRefusal: null,
 } as const
 
 /**
@@ -581,6 +597,10 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       undo,
       redo,
       openProject,
+
+      reportEditRefusal(editRefusal) {
+        if (editRefusal !== null || get().editRefusal !== null) set({ editRefusal })
+      },
 
       setDrag(drag) {
         set({ drag })

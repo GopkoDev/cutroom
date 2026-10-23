@@ -8,6 +8,88 @@
 //
 // Everything here is pure, so the wording is unit-tested without a browser.
 
+/** A plain statement and what to do about it — the two lines a refusal notice shows. */
+export interface RefusalWords {
+  readonly title: string
+  readonly explanation: string
+}
+
+/**
+ * Why an edit did not happen, in the User's terms (screens.md SCR-02 "error (edit refused)").
+ *
+ * `reason` is a model `RefusalReason` (contracts/public-api.md) or one of the two empty
+ * `splitTargets` cases. An edit refused is a rule the User can act on at once, not something
+ * broken, so each line says what to do next. A reason this build does not know still gets words,
+ * because a notice that says nothing is worse than a general one.
+ */
+export function explainRefusal(reason: string): RefusalWords {
+  switch (reason) {
+    case "selection-not-under-frame":
+      return {
+        title: "No selected Clip is under the Playhead.",
+        explanation:
+          "Move the Playhead inside a selected Clip, past its first Frame, or clear the Selection to split every Clip under it.",
+      }
+    case "nothing-under-frame":
+      return {
+        title: "No Clip is under the Playhead.",
+        explanation: "Move the Playhead onto a Clip, past its first Frame, and split again.",
+      }
+    case "track-limit":
+      return {
+        title: "A Project has at most two video Tracks for now.",
+        explanation: "Put the Clip on one of the two Tracks you have.",
+      }
+    case "last-track":
+      return {
+        title: "A Project always keeps at least one Track.",
+        explanation: "Delete the Clips on it instead, if you want the Timeline empty.",
+      }
+    case "overlap":
+      return {
+        title: "Clips can't overlap on a Track.",
+        explanation: "Make room first, or place the Clips somewhere free.",
+      }
+    case "before-timeline-start":
+      return {
+        title: "Nothing can start before the Timeline's first Frame.",
+        explanation: "Place the Clips at Frame 0 or later.",
+      }
+    case "too-short":
+      return {
+        title: "A Clip has to be at least one Frame long.",
+        explanation: "Delete the Clip instead, if you want none of it.",
+      }
+    case "source-bounds":
+      return {
+        title: "A Clip can only show what its Source holds.",
+        explanation: "The Clip already reaches the start or end of its Source.",
+      }
+    case "unknown-clip":
+      return {
+        title: "That Clip is no longer on the Timeline.",
+        explanation: "Select the Clips you want and try again.",
+      }
+    case "unknown-track":
+      return {
+        title: "That Track is no longer in the Project.",
+        explanation: "Try again on one of the Tracks shown.",
+      }
+    case "unknown-source":
+      return {
+        title: "That Source is no longer in the Project.",
+        explanation: "Import the file again to use it.",
+      }
+    default:
+      // duplicate-id, no-project, invalid, or a reason a newer model has: none of them is
+      // something the User did, so the notice says the edit did not happen and keeps the detail.
+      return {
+        title: "That edit could not be made.",
+        explanation: "Nothing was changed. The details say why, for a bug report.",
+      }
+  }
+}
+
 /** The thrown value's name, when it has one (`NotAllowedError`, `QuotaExceededError`, …). */
 export function errorName(error: unknown): string | undefined {
   if (typeof error !== "object" || error === null) return undefined

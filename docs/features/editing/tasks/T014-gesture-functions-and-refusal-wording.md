@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/store/edit.ts", "apps/editor/src/store/edit.test.t
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "L"   # justified: one Gesture layer for sixteen ACs; splitting it would split one file and one wording table across tasks
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T014 — Write one store function per Gesture, stopping Playback first, with refusal wording
 

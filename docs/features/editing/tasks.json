@@ -311,7 +311,7 @@
         "apps/editor/src/store/index.ts"
       ],
       "file": "docs/features/editing/tasks/T014-gesture-functions-and-refusal-wording.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T015",
