@@ -9,8 +9,8 @@ files_hint: ["apps/editor/e2e/engine-worker.spec.ts", "docs/features/editing/_ev
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "S"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T001 — Diagnose and fix the flaky engine-worker e2e check before any feature work
 
