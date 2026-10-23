@@ -84,6 +84,8 @@ import {
 } from "@/storage/projects"
 import { storageProblem, technicalDetail } from "@/ui/failure-wording"
 
+import { allClipIds, prune, toggle } from "./selection"
+
 // `applyCommand` already enables patches in the model's copy of Immer. Repeated here because
 // `applyPatches` is called from *this* module, and the call is documented as idempotent — the cost
 // of being wrong about module identity is an undo that throws in production and works in every test.
@@ -186,6 +188,11 @@ export interface EditorState {
   readonly future: readonly HistoryEntry[]
   /** The label of the gesture currently open, or `null`. Undo is unavailable while it is set. */
   readonly openTransaction: string | null
+  /**
+   * The Clips the next edit acts on, as ids (AC-14). Session state: never in the Project, never
+   * in history, never saved; pruned after every undo and redo to Clips that exist (AC-15).
+   */
+  readonly selection: readonly string[]
 
   // ------------------------------------------------------------------------ what the engine sees
   /**
@@ -224,6 +231,16 @@ export interface EditorState {
   undo(): void
   redo(): void
 
+  /** Makes `clipId` the only selected Clip. */
+  select(clipId: string): void
+  /** Adds `clipId` to the Selection, or takes it out (the modifier click). */
+  toggleSelected(clipId: string): void
+  /** Selects every Clip on every Track. */
+  selectAll(): void
+  clearSelection(): void
+  /** Replaces the Selection, e.g. with the Clips an edit just made. Unknown ids are dropped. */
+  setSelection(clipIds: readonly string[]): void
+
   setPlayhead(frame: number): void
   setTransport(transport: "stopped" | "playing"): void
   /**
@@ -255,6 +272,22 @@ export interface EditorState {
 }
 
 /** Undo is available when there is something to undo and no gesture is still being made. */
+/**
+ * How many undo steps a session keeps (spec §6 Undo depth). Beyond it the oldest is dropped: each
+ * entry holds only patches, but a session of thousands of drags should not grow without bound.
+ */
+export const HISTORY_LIMIT = 200
+
+/** What the next undo would take back, for the Undo button to name (AC-16); null when it can't. */
+export function nextUndoLabel(state: EditorState): string | null {
+  return canUndo(state) ? (state.past.at(-1)?.label ?? null) : null
+}
+
+/** What the next redo would put back, for the Redo button to name (AC-16); null when it can't. */
+export function nextRedoLabel(state: EditorState): string | null {
+  return canRedo(state) ? (state.future[0]?.label ?? null) : null
+}
+
 export function canUndo(state: EditorState): boolean {
   return state.past.length > 0 && state.openTransaction === null
 }
@@ -309,6 +342,7 @@ const NO_PROJECT = {
   sourceStatus: {},
   sourceOffline: {},
   engineFatal: null,
+  selection: [],
 } as const
 
 /**
@@ -360,7 +394,9 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       if (patches.length === 0) return
 
       set((state) => ({
-        past: [...state.past, { label: finished.label, patches, inversePatches }],
+        past: [...state.past, { label: finished.label, patches, inversePatches }].slice(
+          -HISTORY_LIMIT
+        ),
         future: [],
       }))
     }
@@ -442,7 +478,11 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       // Only the document moves. The Playhead, the transport and every Source's Linked/Offline status
       // are untouched by construction: they are not in `project`, and nothing else is written here.
       adopt(applyProjectPatches(state.project, entry.inversePatches))
-      set({ past: state.past.slice(0, -1), future: [entry, ...state.future] })
+      set({
+        past: state.past.slice(0, -1),
+        future: [entry, ...state.future],
+        selection: prune(get().selection, get().project),
+      })
       writeNow()
     }
 
@@ -457,7 +497,11 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       if (entry === undefined) return
 
       adopt(applyProjectPatches(state.project, entry.patches))
-      set({ past: [...state.past, entry], future: state.future.slice(1) })
+      set({
+        past: [...state.past, entry],
+        future: state.future.slice(1),
+        selection: prune(get().selection, get().project),
+      })
       writeNow()
     }
 
@@ -519,6 +563,26 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       undo,
       redo,
       openProject,
+
+      select(clipId) {
+        set({ selection: [clipId] })
+      },
+
+      toggleSelected(clipId) {
+        set((state) => ({ selection: toggle(state.selection, clipId) }))
+      },
+
+      selectAll() {
+        set((state) => ({ selection: allClipIds(state.project) }))
+      },
+
+      clearSelection() {
+        if (get().selection.length > 0) set({ selection: [] })
+      },
+
+      setSelection(clipIds) {
+        set((state) => ({ selection: prune([...clipIds], state.project) }))
+      },
 
       setPlayhead(frame) {
         set({ playheadFrame: frame })

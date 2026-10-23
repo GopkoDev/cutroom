@@ -4,7 +4,16 @@ import { CommandError, type Clip, type Command, type Project, type Source } from
 
 import { createProjectSaver, ProjectLoadError } from "@/storage/projects"
 
-import { canRedo, canUndo, createEditorStore, TransactionError, type EditorStore } from "./index"
+import {
+  canRedo,
+  canUndo,
+  createEditorStore,
+  HISTORY_LIMIT,
+  nextRedoLabel,
+  nextUndoLabel,
+  TransactionError,
+  type EditorStore,
+} from "./index"
 
 // The store's promises are about history, so most tests here are a sequence of edits followed by
 // undo/redo, compared to the Project at an earlier point with `toStrictEqual` — "the same
@@ -461,5 +470,88 @@ describe("failures the user is told about (T093)", () => {
       reason: "the GPU context was lost",
       stack: "at render",
     })
+  })
+})
+
+describe("history limit and labels", () => {
+  /** A store with the Source imported and `count` one-Frame-gap Gestures run, labelled "Edit n". */
+  function withGestures(count: number) {
+    const context = started()
+    context.store.getState().run(importSource)
+    context.store.getState().transact("Setup", () => undefined)
+    // Alternate-free: each Gesture adds one Clip, 100 Frames long, 100 apart.
+    for (let n = 1; n <= count; n += 1) {
+      context.store
+        .getState()
+        .transact(`Edit ${n}`, () =>
+          context.store.getState().run(addClip(`clip-${n}`, (n - 1) * 100))
+        )
+    }
+    return context
+  }
+
+  it("keeps at most 200 entries and drops the oldest on the 201st Gesture", () => {
+    expect(HISTORY_LIMIT).toBe(200)
+    const { store } = started() // history: create-project
+    store.getState().run(importSource) // history: 2 entries, 198 more fill it
+    for (let n = 1; n <= 198; n += 1) {
+      store
+        .getState()
+        .transact(`Edit ${n}`, () => store.getState().run(addClip(`clip-${n}`, (n - 1) * 100)))
+    }
+    expect(store.getState().past).toHaveLength(HISTORY_LIMIT)
+    expect(store.getState().past[0]?.label).toBe("create-project")
+
+    store.getState().transact("Edit 199", () => store.getState().run(addClip("clip-199", 19_800)))
+    const labels = store.getState().past.map((entry) => entry.label)
+    expect(labels).toHaveLength(HISTORY_LIMIT)
+    expect(labels[0]).toBe("import-source")
+    expect(labels[1]).toBe("Edit 1")
+    expect(labels.at(-1)).toBe("Edit 199")
+  })
+
+  it("still undoes 200 times after the cap has dropped entries", () => {
+    const { store } = withGestures(210)
+    expect(store.getState().past).toHaveLength(HISTORY_LIMIT)
+    for (let n = 0; n < HISTORY_LIMIT; n += 1) store.getState().undo()
+    expect(store.getState().past).toHaveLength(0)
+    expect(store.getState().future).toHaveLength(HISTORY_LIMIT)
+    expect(canUndo(store.getState())).toBe(false)
+  })
+
+  it("names the Gesture the next undo and the next redo will act on", () => {
+    const { store } = started()
+    store.getState().run(importSource)
+    store.getState().transact("Trim", () => store.getState().run(addClip("clip-1", 0)))
+    store.getState().transact("Move 3 Clips", () => store.getState().run(addClip("clip-2", 100)))
+
+    expect(nextUndoLabel(store.getState())).toBe("Move 3 Clips")
+    expect(nextRedoLabel(store.getState())).toBeNull()
+
+    store.getState().undo()
+    expect(nextUndoLabel(store.getState())).toBe("Trim")
+    expect(nextRedoLabel(store.getState())).toBe("Move 3 Clips")
+
+    store.getState().undo()
+    store.getState().redo()
+    expect(nextUndoLabel(store.getState())).toBe("Trim")
+    expect(nextRedoLabel(store.getState())).toBe("Move 3 Clips")
+  })
+
+  it("has no label when there is nothing to undo or redo", () => {
+    const { store } = setup()
+    expect(nextUndoLabel(store.getState())).toBeNull()
+    expect(nextRedoLabel(store.getState())).toBeNull()
+  })
+
+  it("has no label while a Gesture is open, since undo is unavailable then", () => {
+    const { store } = started()
+    store.getState().run(importSource)
+    store.getState().undo()
+    expect(nextRedoLabel(store.getState())).toBe("import-source")
+    const drag = store.getState().beginTransaction("Drag")
+    expect(nextUndoLabel(store.getState())).toBeNull()
+    expect(nextRedoLabel(store.getState())).toBeNull()
+    drag.commit()
   })
 })

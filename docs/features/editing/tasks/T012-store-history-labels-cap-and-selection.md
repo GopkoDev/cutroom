@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/store/index.ts", "apps/editor/src/store/selection.
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T012 — Cap history at 200 named steps and add the Selection, pruned after undo and redo
 

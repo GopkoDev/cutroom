@@ -19,7 +19,7 @@
 | T009 | Add the add-track and remove-track commands with the two-Track limit | domain | Dmytro Hopko | S | T008 | done | COMMIT |
 | T010 | Add placeSourceCommand and make importCommands reuse it | domain | Dmytro Hopko | S | T009 | done | COMMIT |
 | T011 | Pin Frame accuracy and rule-command pairing with model property tests | tests | Dmytro Hopko | M | T010, T003 | done | COMMIT |
-| T012 | Cap history at 200 named steps and add the Selection, pruned after undo and redo | app | Dmytro Hopko | M | — | todo | — |
+| T012 | Cap history at 200 named steps and add the Selection, pruned after undo and redo | app | Dmytro Hopko | M | — | done | COMMIT |
 | T013 | Add the drag-preview slice and retire the open-Gesture save debounce | app | Dmytro Hopko | M | T012, T010 | todo | — |
 | T014 | Write one store function per Gesture, stopping Playback first, with refusal wording | app | Dmytro Hopko | M | T013 | todo | — |
 | T015 | Mix every Clip through one limiter with its measured delay, in Playback and Export | app | Dmytro Hopko | L | — | todo | — |

@@ -252,7 +252,7 @@
         "apps/editor/src/store/selection.test.ts"
       ],
       "file": "docs/features/editing/tasks/T012-store-history-labels-cap-and-selection.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T013",
