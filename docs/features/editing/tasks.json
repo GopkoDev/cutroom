@@ -49,7 +49,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T003-parse-project-source-bounds-and-one-track.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T004",

@@ -185,9 +185,11 @@ describe("a valid Project", () => {
   })
 
   it("accepts an empty Timeline and an empty Track", () => {
-    expect(
-      parseProject(aProject({ timeline: { tracks: [], durationFrames: 0 } })).timeline
-    ).toEqual({ tracks: [], durationFrames: 0 })
+    // Changed for the editing feature: a Project always has at least one Track, checked on load
+    // (data-model.md, "A Project always has at least one Track"), so zero Tracks is now refused.
+    expect(() => parseProject(aProject({ timeline: { tracks: [], durationFrames: 0 } }))).toThrow(
+      /timeline\.tracks must hold at least one Track/
+    )
     expect(parseProject(withClips([], 0)).timeline.tracks[0]?.clips).toEqual([])
   })
 })
@@ -267,8 +269,13 @@ describe("durations", () => {
   })
 
   it("accepts a Source of zero length, which is odd but not corrupt", () => {
+    // No Clip can show any of it: since editing, a Clip outside its Source is refused on load
+    // (data-model.md §Validation summary, Source bounds), so the Source sits on no Track here.
     const parsed = parseProject(
-      aProject({ sources: [aSource({ duration: { numerator: 0, denominator: 1 } })] })
+      aProject({
+        sources: [aSource({ duration: { numerator: 0, denominator: 1 } })],
+        timeline: aTimeline({ tracks: [aTrack({ clips: [] })], durationFrames: 0 }),
+      })
     )
 
     expect(parsed.sources[0]?.duration).toEqual({ numerator: 0, denominator: 1 })
@@ -577,7 +584,12 @@ describe("the migration chain", () => {
 
   it("still validates what a migration produced", () => {
     expect(() =>
-      migrateProject({ ...versionZeroProject(), timeline: { tracks: [], durationFrames: 7 } })
+      // One empty Track: a Timeline with none is refused on load since editing (data-model.md),
+      // and this test is about the duration check, not that one.
+      migrateProject({
+        ...versionZeroProject(),
+        timeline: { tracks: [aTrack({ clips: [] })], durationFrames: 7 },
+      })
     ).toThrow(/timeline\.durationFrames is 7, but the last Clip ends at Frame 0/)
   })
 })

@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/document/parse.ts", "packages/model/test/"]
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T003 — Refuse Clips outside their Source and a Timeline with no Track when a Project loads
 

@@ -469,10 +469,18 @@ describe("totality", () => {
   })
 
   it("projects a Project with no Tracks at all", () => {
-    const project = aProject({
-      sources: [],
+    // `parseProject` refuses a Timeline with no Track since editing (data-model.md), so this
+    // document is built by hand: the projection itself is still total over the type.
+    const project: Project = {
+      ...aProject({
+        sources: [],
+        timeline: {
+          tracks: [{ id: "track-1", kind: "video", name: "Video 1", clips: [] }],
+          durationFrames: 0,
+        },
+      }),
       timeline: { tracks: [], durationFrames: 0 },
-    })
+    }
 
     expect(projectScene(project).clips).toEqual([])
   })
