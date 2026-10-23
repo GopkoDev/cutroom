@@ -18,11 +18,11 @@
 //
 // **One `render-frame` in flight, and the newest one waiting (FR-012, T049).** A Playhead dragged
 // across the Timeline asks for a Frame on every pointer move, far faster than a seek can answer.
-// The worker coalesces what reaches it (playback/scrub.ts), but everything posted still crosses
-// the boundary, is structured-cloned and sits in the worker's queue. So the client holds back too:
-// it posts one request, and until the worker has answered — `frame-rendered` or `frames-dropped`,
-// one of which every request gets — later requests overwrite a single waiting slot instead of
-// being posted. The answer posts whatever is waiting, which is the newest Frame asked for. The two
+// The worker coalesces what reaches it (playback/scheduler.ts), but everything posted still
+// crosses the boundary, is structured-cloned and sits in the worker's queue. So the client holds
+// back too: it posts one request, and until the worker has answered — `frame-rendered` or
+// `frames-dropped`, one of which every request gets — later requests overwrite a single waiting
+// slot instead of being posted. The answer posts whatever is waiting, which is the newest Frame asked for. The two
 // latches are halves of one rule rather than two copies of it: this one keeps the channel to one
 // message, the worker's keeps its decoders to one Render whatever arrives (and it still answers
 // anything that gets past this one, a Frame requested before the first Scene included).

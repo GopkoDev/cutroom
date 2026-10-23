@@ -217,6 +217,12 @@ export interface ProjectSaverOptions {
   /** Called when a write throws. */
   readonly onFailure?: SaveFailureHandler
   /**
+   * Called when a write lands. With `onFailure` it lets the editor say "could not be saved" and
+   * take it back once a later write succeeds (T093) — a failure nobody can see clear is as bad as
+   * one nobody can see at all.
+   */
+  readonly onSaved?: (project: Project) => void
+  /**
    * The write itself. Replaced only in tests, where the interesting property — that an edit
    * arriving while a write is in flight is not lost — needs a write that can be held open.
    */
@@ -277,7 +283,9 @@ export function createProjectSaver(options: ProjectSaverOptions = {}): ProjectSa
         await write(next)
       } catch (error) {
         onFailure(error, next)
+        continue
       }
+      options.onSaved?.(next)
     }
   }
 

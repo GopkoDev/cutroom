@@ -147,8 +147,10 @@ export interface SceneMessage {
 /**
  * Requests one Frame.
  *
- * `scrub` abandons any streaming iterators and uses random access; `clock` continues the streaming
- * path. The worker may coalesce: if newer requests arrive while one is in flight, the older ones
+ * `scrub` is the Playhead moved by hand and `clock` is playback; both are rendered from each Clip's
+ * decoder, walked forward from where it stands when the Frame is ahead of it within reach and
+ * reopened at the Frame otherwise (ADR 0017). `reason` decides how playback counts skipped Frames,
+ * and whether a repeated Frame is drawn again. The worker may coalesce: if newer requests arrive while one is in flight, the older ones
  * are dropped rather than queued, because a Frame the user has already scrubbed past is work
  * nobody is waiting for (FR-012). A request may therefore be answered late or not at all, and the
  * main thread must not block on it (invariant 3).

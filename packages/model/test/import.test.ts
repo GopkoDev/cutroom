@@ -2,15 +2,15 @@ import { applyPatches, type Patch } from "immer"
 import { describe, expect, it, vi } from "vitest"
 
 import { applyCommand, CommandError } from "../src/commands/apply"
-import { FIRST_TRACK_NAME, importSequence, type ImportRequest } from "../src/commands/import"
+import { FIRST_TRACK_NAME, importCommands, type ImportRequest } from "../src/commands/import"
 import type { Command } from "../src/commands/index"
 import { parseProject } from "../src/document/parse"
 import type { Project, Source } from "../src/document/types"
 
 // What these tests are for.
 //
-// `importSequence` decides what an import does and applies nothing, so every test here runs the
-// sequence through the real reducer and asserts on the Project that comes out — a list of commands
+// `importCommands` decides what an import does and applies nothing, so every test here runs the
+// commands through the real reducer and asserts on the Project that comes out — a list of commands
 // that merely *looks* right proves nothing until `applyCommand` has accepted every one of them in
 // order. Every resulting Project then goes through `parseProject`, the gate it meets on its next
 // load.
@@ -56,7 +56,7 @@ const aRequest = (overrides: Partial<ImportRequest> = {}): ImportRequest => ({
   ...overrides,
 })
 
-/** Runs a sequence through the reducer, as the store's transaction would. */
+/** Runs an import's commands through the reducer, as the store's transaction would. */
 const run = (prior: Project | null, commands: readonly Command[]) => {
   let project = prior
   const inverses: (readonly Patch[])[] = []
@@ -65,12 +65,12 @@ const run = (prior: Project | null, commands: readonly Command[]) => {
     project = result.project
     inverses.push(result.inversePatches)
   }
-  if (project === null) throw new Error("an import sequence always ends with a Project")
+  if (project === null) throw new Error("an import's commands always end with a Project")
   return { project, inverses }
 }
 
 const importInto = (prior: Project | null, request: ImportRequest): Project =>
-  run(prior, importSequence(prior, request)).project
+  run(prior, importCommands(prior, request)).project
 
 const clipsOn = (project: Project) => project.timeline.tracks[0]?.clips ?? []
 
@@ -81,7 +81,7 @@ const thirtyFps = importInto(null, aRequest())
 
 describe("importing into no Project", () => {
   it("creates the Project, records the Source and adds the Clip, in that order", () => {
-    expect(importSequence(null, aRequest()).map((command) => command.type)).toStrictEqual([
+    expect(importCommands(null, aRequest()).map((command) => command.type)).toStrictEqual([
       "create-project",
       "import-source",
       "add-clip",
@@ -210,7 +210,7 @@ describe("importing into a Project that already exists", () => {
   })
 
   it("does not create a Project and does not touch the Timebase or frame size", () => {
-    const commands = importSequence(thirtyFps, second)
+    const commands = importCommands(thirtyFps, second)
     expect(commands.map((command) => command.type)).toStrictEqual(["import-source", "add-clip"])
     const project = run(thirtyFps, commands).project
     expect(project.id).toBe(thirtyFps.id)
@@ -236,7 +236,7 @@ describe("importing into a Project that already exists", () => {
   })
 
   it("places the Clip at Frame 0 on a Track with nothing on it", () => {
-    const empty = applyCommand(null, importSequence(null, aRequest())[0] as Command).project
+    const empty = applyCommand(null, importCommands(null, aRequest())[0] as Command).project
     const project = importInto(empty, aRequest())
     expect(project.timebase).toStrictEqual(empty.timebase)
     expect(clipsOn(project)[0]?.startFrame).toBe(0)
@@ -244,8 +244,8 @@ describe("importing into a Project that already exists", () => {
 
   it("refuses a Project with no video Track before producing a command", () => {
     const trackless: Project = { ...thirtyFps, timeline: { tracks: [], durationFrames: 0 } }
-    expect(() => importSequence(trackless, second)).toThrow(CommandError)
-    expect(() => importSequence(trackless, second)).toThrow(/no video Track/)
+    expect(() => importCommands(trackless, second)).toThrow(CommandError)
+    expect(() => importCommands(trackless, second)).toThrow(/no video Track/)
   })
 })
 
@@ -270,31 +270,31 @@ describe("the name of a Project an import creates", () => {
 describe("an import that could never succeed", () => {
   it("is refused before any command exists when the Source covers no Frame", () => {
     const empty = aRequest({ source: aSource({ duration: { numerator: 0, denominator: 1 } }) })
-    expect(() => importSequence(null, empty)).toThrow(CommandError)
-    expect(() => importSequence(null, empty)).toThrow(/too short to cover a single Frame/)
+    expect(() => importCommands(null, empty)).toThrow(CommandError)
+    expect(() => importCommands(null, empty)).toThrow(/too short to cover a single Frame/)
   })
 
   it("is refused as a CommandError, not a RangeError, when the duration is malformed", () => {
     const malformed = aRequest({ source: aSource({ duration: { numerator: 10, denominator: 0 } }) })
-    expect(() => importSequence(null, malformed)).toThrow(CommandError)
-    expect(() => importSequence(null, malformed)).toThrow(/duration is unusable/)
+    expect(() => importCommands(null, malformed)).toThrow(CommandError)
+    expect(() => importCommands(null, malformed)).toThrow(/duration is unusable/)
   })
 
   it("is refused by the reducer, not here, when an id is already in use", () => {
     const reused = aRequest({ clipId: "clip-2" }) // source-1 is already in `thirtyFps`
-    const commands = importSequence(thirtyFps, reused)
+    const commands = importCommands(thirtyFps, reused)
     expect(() => run(thirtyFps, commands)).toThrow(/already in this Project/)
   })
 })
 
 // ---------------------------------------------------------------------------- one undo step
 
-describe("the whole sequence", () => {
+describe("the whole import", () => {
   const replay = (base: Project | null, patches: readonly Patch[]): Project | null =>
     applyPatches(base as Project, patches) as Project | null
 
   const undoAll = (prior: Project | null, request: ImportRequest): Project | null => {
-    const { project, inverses } = run(prior, importSequence(prior, request))
+    const { project, inverses } = run(prior, importCommands(prior, request))
     return inverses.reduceRight<Project | null>((state, patches) => replay(state, patches), project)
   }
 
@@ -311,9 +311,9 @@ describe("the whole sequence", () => {
     const now = vi.spyOn(Date, "now")
     const random = vi.spyOn(Math, "random")
     const uuid = vi.spyOn(crypto, "randomUUID")
-    expect(importSequence(null, aRequest())).toStrictEqual(importSequence(null, aRequest()))
-    expect(importSequence(thirtyFps, aRequest({ clipId: "c" }))).toStrictEqual(
-      importSequence(thirtyFps, aRequest({ clipId: "c" }))
+    expect(importCommands(null, aRequest())).toStrictEqual(importCommands(null, aRequest()))
+    expect(importCommands(thirtyFps, aRequest({ clipId: "c" }))).toStrictEqual(
+      importCommands(thirtyFps, aRequest({ clipId: "c" }))
     )
     expect(now).not.toHaveBeenCalled()
     expect(random).not.toHaveBeenCalled()

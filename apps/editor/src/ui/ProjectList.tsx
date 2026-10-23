@@ -20,8 +20,12 @@
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { onStorageBlocked } from "@/storage/db"
 import { listProjects, type ProjectSummary } from "@/storage/projects"
 import { useEditorStore } from "@/store"
+
+import { reloadPage, storageProblem, technicalDetail } from "./failure-wording"
+import { Notice } from "./Notice"
 
 /**
  * When a Project was last touched, as a person reads it.
@@ -41,17 +45,22 @@ function lastTouched(modifiedAt: string | null): string {
 type Listing =
   | { readonly state: "loading" }
   | { readonly state: "ready"; readonly projects: readonly ProjectSummary[] }
-  | { readonly state: "failed"; readonly reason: string }
+  | { readonly state: "failed"; readonly explanation: string; readonly detail: string }
 
 export function ProjectList() {
   const [listing, setListing] = useState<Listing>({ state: "loading" })
   const newProject = useEditorStore((state) => state.newProject)
   const openProject = useEditorStore((state) => state.openProject)
   const openFailure = useEditorStore((state) => state.openFailure)
+  // Bumped by "Try again", which lists again.
+  const [attempt, setAttempt] = useState(0)
+  const [blocked, setBlocked] = useState(false)
+
+  useEffect(() => onStorageBlocked(setBlocked), [])
 
   // Listed on mount and not refreshed afterwards, because this screen is unmounted the moment a
   // Project opens and mounted again on the way back — so "on mount" and "every time the list is
-  // looked at" are the same occasion.
+  // looked at" are the same occasion. "Try again" after a failure is the one other occasion.
   useEffect(() => {
     let current = true
     void listProjects().then(
@@ -64,7 +73,8 @@ export function ProjectList() {
         if (current) {
           setListing({
             state: "failed",
-            reason: error instanceof Error ? error.message : String(error),
+            explanation: storageProblem(error),
+            detail: technicalDetail(error),
           })
         }
       }
@@ -72,7 +82,7 @@ export function ProjectList() {
     return () => {
       current = false
     }
-  }, [])
+  }, [attempt])
 
   return (
     <main
@@ -94,21 +104,50 @@ export function ProjectList() {
       </div>
 
       {openFailure !== null && (
-        <p data-testid="open-failure" className="text-sm text-destructive">
-          {openFailure}
-        </p>
+        <Notice testId="open-failure" title={openFailure.title} details={openFailure.detail}>
+          <p>{openFailure.explanation}</p>
+        </Notice>
       )}
 
-      {listing.state === "loading" && (
+      {listing.state === "loading" && !blocked && (
         <p data-testid="project-list-loading" className="text-sm text-muted-foreground">
           Looking for your Projects…
         </p>
       )}
 
+      {listing.state === "loading" && blocked && (
+        <Notice
+          testId="storage-blocked"
+          tone="attention"
+          title="Your Projects cannot be opened while another Cutroom tab is open."
+          actions={[{ label: "Reload", testId: "storage-blocked-reload", onClick: reloadPage }]}
+        >
+          <p>
+            That tab is running an older version of Cutroom and is holding on to its storage. Close
+            every other Cutroom tab, then reload this one. Nothing has been lost.
+          </p>
+        </Notice>
+      )}
+
       {listing.state === "failed" && (
-        <p data-testid="project-list-failed" className="text-sm text-destructive">
-          Your Projects could not be read from this browser&apos;s storage. {listing.reason}
-        </p>
+        <Notice
+          testId="project-list-failed"
+          title="Your Projects could not be read from this browser's storage."
+          details={listing.detail}
+          actions={[
+            {
+              label: "Try again",
+              testId: "project-list-retry",
+              onClick: () => {
+                setListing({ state: "loading" })
+                setAttempt((count) => count + 1)
+              },
+            },
+            { label: "Reload", onClick: reloadPage },
+          ]}
+        >
+          <p>{listing.explanation}</p>
+        </Notice>
       )}
 
       {listing.state === "ready" && listing.projects.length === 0 && (
@@ -129,7 +168,7 @@ export function ProjectList() {
                 data-openable={String(summary.openable)}
                 disabled={!summary.openable}
                 onClick={() => {
-                  void openProject(summary.id)
+                  void openProject(summary.id, summary.name ?? "Untitled Project")
                 }}
                 className="flex w-full flex-col items-start gap-0.5 rounded-md border px-3 py-2 text-left transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
               >

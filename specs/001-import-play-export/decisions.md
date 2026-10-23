@@ -61,3 +61,41 @@ and the code together.
   stand-in cannot show this; T096's manual walk checks it in real Chrome, and if it does, the
   answer is to compare against Sources by name before the picker can be accepted (a
   `startIn`/suggested-name warning) — recorded here rather than guessed at.
+
+## Language and records (T094)
+
+- **After-the-fact ADRs 0015 and 0016 written** (autonomous, 2026-10-23). The T094 audit found
+  three decisions at the ADR bar with no ADR: the Export's own renderer and decoders, the
+  commit-once rule for the destination, and the measured Source Timebase. They are written now as
+  marked after-the-fact records, the same treatment as 0011–0014, because a decision with no
+  record is worse than a late one; the lapse itself stays recorded in T094.
+- **Missing terms added to CONTEXT.md** (autonomous, 2026-10-23): Linked Source, In-point,
+  Timecode, Scrub, Playback, Transport, Skipped Frame, Dropped Frame, Gesture, Project list,
+  Export quality — each with words to avoid.
+- **Avoided words renamed in code**: `importSequence` ("Sequence") and `framesPerSecond` ("FPS")
+  are renamed once the Phase 6 agents have finished touching those files.
+- **`anchor` (clock) and `segment` (offline mix) are kept** (autonomous, 2026-10-23). They name
+  a clock reference point and a slice of mix time, not a Keyframe or a Clip, and live only inside
+  `apps/editor/src/audio/`; renaming them would cost clarity there for no gain in the domain.
+- **The time space of `sourceInPoint` is left open** (autonomous, 2026-10-23). It is container
+  time today (In-point 0 at the container's zero), which is right for every file in this slice;
+  an ADR settles it before trimming lands, because trimming is where it starts to matter.
+
+## Scrub latency (T092)
+
+- **Forward scrubs reuse the decoder's position; keyframe preview and proxies are next**
+  (autonomous, 2026-10-23). T092 found SC-003 missed on 1080p H.264 with GOP 300 (307 ms) and by
+  ≈2× on 4K. Within this slice only the forward-walk is built, because it is the common gesture,
+  it fixes the 1080p miss, and it reuses a rule streaming already has. Showing the keyframe while
+  the pointer moves changes SC-003's promise and a proxy reverses "nothing derived is kept", so
+  both wait for their own spec work. ADR 0017.
+- **SC-003 accepted as met for forward gestures only on 1080p GOP 300** (autonomous,
+  2026-10-23). After ADR 0017, backward steps and far jumps on 1080p H.264 with a keyframe every
+  300 Frames still measure 301–313 ms worst, just over 300 ms; on the fixtures and on GOP 250 or
+  HEVC every gesture is inside it. Two attempts to shave the iterator-open cost made it worse.
+  Closing this gap needs the keyframe-preview item of ADR 0017, which changes what SC-003
+  promises, so it is left for that spec work rather than chased here.
+- **A stopped Preview keeps its scrub decoder for 3 s** (autonomous, 2026-10-23). The parked
+  iterator is what makes the next step cost 1 ms instead of 300, and holds about 45 decoded
+  Frames (≈140 MB at 1080p, ≈560 MB at 4K); 3 s idle releases it. This relaxes T090's "a stopped
+  Preview holds no decoder" to "after 3 s".

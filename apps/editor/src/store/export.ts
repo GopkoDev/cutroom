@@ -59,6 +59,7 @@ import { projectScene, type Frame, type Project, type Scene } from "@cutroom/mod
 import { requestedExportPcm, type StreamExportAudioOptions } from "@/audio/offline-mix"
 import type { EngineClient } from "@/engine-client"
 import type { ExportSettings } from "@/ui/export-settings"
+import { technicalDetail, type ExportFailureStage } from "@/ui/failure-wording"
 
 /** The Frames an export covers: `fromFrame` up to, not including, `toFrame`. */
 export interface ExportRange {
@@ -108,6 +109,9 @@ export type ExportStatus =
   | {
       readonly phase: "failed"
       readonly fileName: string | null
+      /** Where it failed, which decides the words and the action the dialog offers (T093). */
+      readonly stage: ExportFailureStage
+      /** The engine's or the platform's own words, for "Details". */
       readonly reason: string
       readonly leftover: Leftover | null
     }
@@ -187,7 +191,7 @@ export function suggestedFileName(project: Project): string {
 }
 
 function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  return technicalDetail(error)
 }
 
 interface Snapshot {
@@ -269,7 +273,8 @@ export function createExportController(options: ExportControllerOptions): Export
       setStatus({
         phase: "failed",
         fileName: null,
-        reason: `The destination could not be chosen. ${describe(error)}`,
+        stage: "choosing",
+        reason: describe(error),
         leftover: null,
       })
       return
@@ -298,7 +303,8 @@ export function createExportController(options: ExportControllerOptions): Export
       setStatus({
         phase: "failed",
         fileName,
-        reason: `${fileName} could not be opened for writing. ${describe(error)}`,
+        stage: "opening",
+        reason: describe(error),
         leftover: null,
       })
       return
@@ -317,6 +323,15 @@ export function createExportController(options: ExportControllerOptions): Export
     // Chrome cannot transfer the file stream itself, so the worker gets a plain stream forwarding
     // to it; `committed` says when the file stream's own close has committed the file (R4).
     const relay = forwardingWritable(writable)
+    // The first thing that went wrong at the destination, as the platform raised it. A write that
+    // fails here reaches the worker only as "Cannot close a ERRORED writable stream", so its
+    // `export-failed` names the symptom; this is the cause — a full disk, a revoked permission — and
+    // the words the user is given depend on it (T093). A `DOMException` only: the worker's own
+    // abort reason arrives here too, as a plain `Error`, and says nothing the engine did not.
+    let destinationError: DOMException | null = null
+    relay.committed.catch((error: unknown) => {
+      if (destinationError === null && error instanceof DOMException) destinationError = error
+    })
     const finishing = engine.startExport(
       {
         scene: frozen.scene,
@@ -350,7 +365,7 @@ export function createExportController(options: ExportControllerOptions): Export
         signal: mixer.signal,
       }).catch((error: unknown) => {
         if (mixer.signal.aborted) return
-        mixFailure = `The sound could not be mixed. ${describe(error)}`
+        mixFailure = describe(error)
         mixer.abort()
         engine.cancelExport()
       })
@@ -363,6 +378,9 @@ export function createExportController(options: ExportControllerOptions): Export
         : 0
     }
 
+    // Where the export is, for the words a failure is given: the engine making the file, or the
+    // file's own close committing it once the engine has finished.
+    let stage: ExportFailureStage = "running"
     try {
       const outcome = await finishing
       const elapsedMs = elapsed()
@@ -370,6 +388,7 @@ export function createExportController(options: ExportControllerOptions): Export
       if (outcome.status === "done" && mixFailure === null) {
         // `export-done` can overtake the close travelling down the stream, and the file is only
         // finished once that close has committed it here.
+        stage = "committing"
         await relay.committed
         setStatus({
           phase: "done",
@@ -384,7 +403,7 @@ export function createExportController(options: ExportControllerOptions): Export
       setStatus(
         mixFailure === null
           ? { phase: "cancelled", fileName, leftover }
-          : { phase: "failed", fileName, reason: mixFailure, leftover }
+          : { phase: "failed", fileName, stage: "mixing", reason: mixFailure, leftover }
       )
     } catch (error) {
       mixer.abort()
@@ -394,7 +413,18 @@ export function createExportController(options: ExportControllerOptions): Export
       // the only `done`-side way here, and then nothing was committed.
       await writable.abort().catch(() => {})
       const leftover = await clearLeftover(destination, before)
-      setStatus({ phase: "failed", fileName, reason: mixFailure ?? describe(error), leftover })
+      const cause: DOMException | null = destinationError
+      const engineSaid = describe(error)
+      const platformSaid = cause === null ? engineSaid : describe(cause)
+      setStatus({
+        phase: "failed",
+        fileName,
+        stage: mixFailure === null ? stage : "mixing",
+        reason:
+          mixFailure ??
+          (platformSaid === engineSaid ? engineSaid : `${platformSaid}\n(${engineSaid})`),
+        leftover,
+      })
     } finally {
       if (mixing === mixer) mixing = null
     }

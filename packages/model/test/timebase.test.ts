@@ -6,12 +6,12 @@ import {
   frameToSourceTime,
   frameToTimecode,
   framesForDuration,
-  framesPerSecond,
   secondsToFrame,
   secondsToTicks,
   sourceTimeBefore,
   sourceTimeToTicks,
   ticksToSeconds,
+  timebaseAsNumber,
   timebaseFromTicks,
   type Rational,
   type Timebase,
@@ -87,18 +87,18 @@ describe("frameToSeconds", () => {
   })
 })
 
-describe("framesPerSecond", () => {
+describe("timebaseAsNumber", () => {
   it("is the Timebase as a float, for a muxer that takes nothing else", () => {
-    expect(framesPerSecond(VIDEO)).toBe(30)
-    expect(framesPerSecond(NTSC)).toBe(30_000 / 1001)
+    expect(timebaseAsNumber(VIDEO)).toBe(30)
+    expect(timebaseAsNumber(NTSC)).toBe(30_000 / 1001)
     // The reciprocal of the float still names the exact Frame duration to well within the
     // precision a muxer approximates it with (a denominator up to 10⁶).
-    expect(Math.abs(1 / framesPerSecond(NTSC) - 1001 / 30_000)).toBeLessThan(1e-15)
+    expect(Math.abs(1 / timebaseAsNumber(NTSC) - 1001 / 30_000)).toBeLessThan(1e-15)
   })
 
   it("refuses something that is not a Timebase", () => {
-    expect(() => framesPerSecond({ numerator: 0, denominator: 1 })).toThrow(RangeError)
-    expect(() => framesPerSecond({ numerator: 30, denominator: 0 })).toThrow(RangeError)
+    expect(() => timebaseAsNumber({ numerator: 0, denominator: 1 })).toThrow(RangeError)
+    expect(() => timebaseAsNumber({ numerator: 30, denominator: 0 })).toThrow(RangeError)
   })
 })
 

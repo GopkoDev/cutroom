@@ -54,6 +54,8 @@ interface EngineHarness {
    * send something else first. */
   init(timebase: unknown, frameSize: unknown): void
   send(message: unknown): void
+  /** The oldest event of `type` that no earlier `next` has returned, waiting for one if there is
+   * none yet. Each event is returned once: two `render-frame`s need two `frame-rendered`s. */
   next(type: string, timeoutMs?: number): Promise<EngineEventRecord>
   seen(): EngineEventRecord[]
   /** The rendered pixels, read back off the placeholder canvas the worker was given control of. */
@@ -84,6 +86,10 @@ test.beforeEach(async ({ page }) => {
       const worker = new Worker(workerUrl, { type: "module" })
       const seen: { type: string; [field: string]: unknown }[] = []
       const waiting: (() => void)[] = []
+      // The events a `next` has already returned. Without this, a second `next("frame-rendered")`
+      // finds the first one's answer and resolves at once — before the Frame it was waiting for
+      // has been rendered — and whatever the test reads next is read too early.
+      const taken = new Set<object>()
 
       const arrived = (event: { type: string; [field: string]: unknown }) => {
         seen.push(event)
@@ -120,12 +126,13 @@ test.beforeEach(async ({ page }) => {
             }, timeoutMs)
 
             const look = () => {
-              const found = seen.find((event) => event.type === type)
+              const found = seen.find((event) => event.type === type && !taken.has(event))
               if (!found) {
                 waiting.push(look)
                 return
               }
               clearTimeout(deadline)
+              taken.add(found)
               resolve(found)
             }
             look()
@@ -320,14 +327,15 @@ test("a Scene older than the one the worker holds is ignored", async ({ page }) 
         scene: { ...scene, frameSize: { width: 100, height: 50 } },
       })
       engine.send({ type: "render-frame", frame: 13, reason: "clock" })
-      await engine.next("frame-rendered", 20_000)
+      const again = await engine.next("frame-rendered", 20_000)
 
-      return { rendered, pixels: await engine.pixels() }
+      return { rendered, again, pixels: await engine.pixels() }
     },
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE, scene: EMPTY_SCENE }
   )
 
   expect(result.rendered).toEqual({ type: "frame-rendered", frame: 12, revision: 7, skipped: 0 })
+  expect(result.again).toEqual({ type: "frame-rendered", frame: 13, revision: 7, skipped: 0 })
   expect({ width: result.pixels.width, height: result.pixels.height }).toEqual(FRAME_SIZE)
 })
 

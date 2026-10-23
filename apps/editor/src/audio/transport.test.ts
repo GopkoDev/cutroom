@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { EngineEvent } from "@cutroom/engine/protocol"
-import { frameToSampleIndex, importSequence, type Source } from "@cutroom/model"
+import { frameToSampleIndex, importCommands, type Source } from "@cutroom/model"
 
 import { createEditorStore } from "@/store"
 
@@ -37,7 +37,7 @@ function projectStore(source: Source = SOURCE) {
   })
   store.getState().newProject()
   store.getState().transact("Import", () => {
-    for (const command of importSequence(null, {
+    for (const command of importCommands(null, {
       at: "2026-10-22T10:00:00.000Z",
       source,
       clipId: "clip-1",

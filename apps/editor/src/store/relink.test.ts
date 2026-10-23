@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { SourceAttachedEvent } from "@cutroom/engine/protocol"
-import { importSequence, type Source } from "@cutroom/model"
+import { importCommands, type Source } from "@cutroom/model"
 
 import type { RelinkOutcome, SourceFileHandle } from "@/storage/source-links"
 
@@ -29,7 +29,7 @@ function setup() {
   })
   store.getState().newProject()
   store.getState().transact("Import", () => {
-    for (const command of importSequence(null, {
+    for (const command of importCommands(null, {
       at: "2026-10-22T10:00:00.000Z",
       source: SOURCE,
       clipId: "clip-1",
@@ -140,5 +140,87 @@ describe("regrantAccess", () => {
     })
     expect(result.ok).toBe(false)
     expect(tracker.check).not.toHaveBeenCalled()
+  })
+})
+
+describe("a failed re-grant or Relink is said plainly, with the platform's words kept (T093)", () => {
+  it("a permission request the browser refused to show", async () => {
+    const { store, tracker } = setup()
+    const result = await regrantAccess(SOURCE.id, {
+      store,
+      tracker,
+      requestAccess: async () => {
+        throw new DOMException("User activation is required.", "SecurityError")
+      },
+    })
+    expect(result).toEqual({
+      ok: false,
+      message: "The browser did not ask for permission. Click Allow access again.",
+      detail: "SecurityError: User activation is required.",
+    })
+  })
+
+  it("access granted to a file that is no longer there sends the user to find it", async () => {
+    const { store, tracker } = setup()
+    tracker.check.mockImplementationOnce(async () => {
+      store.getState().markSource(SOURCE.id, "offline", {
+        reason: "unreachable",
+        detail: "NotFoundError: A requested file or directory could not be found.",
+      })
+    })
+    const result = await regrantAccess(SOURCE.id, {
+      store,
+      tracker,
+      requestAccess: async () => "granted",
+    })
+    expect(result).toEqual({
+      ok: false,
+      message: "Access was granted, but the file is no longer where it was. Find it instead.",
+      detail: "NotFoundError: A requested file or directory could not be found.",
+    })
+  })
+
+  it("a picked file that cannot be read names the Source and why", async () => {
+    const { store, tracker } = setup()
+    const result = await relinkPickedFile(SOURCE.id, handle, {
+      store,
+      tracker,
+      relink: async () => ({
+        ok: false,
+        reason: "unreadable",
+        detail: "NotReadableError: The file could not be read.",
+      }),
+      now: () => "2026-10-22T11:00:00.000Z",
+    })
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.message).toBe(
+      "That file could not be used for interview.mp4. It could not be read. It may be open in another program, or on a drive that is no longer connected."
+    )
+    expect(result.detail).toBe("NotReadableError: The file could not be read.")
+  })
+
+  it("a matching file the engine cannot read leaves the Clips as they are", async () => {
+    const { store, tracker } = setup()
+    const before = store.getState().project
+    tracker.attach.mockRejectedValueOnce(new Error('"renamed.mp4" could not be read'))
+    const result = await relinkPickedFile(SOURCE.id, handle, {
+      store,
+      tracker,
+      relink: async () => ({
+        ok: true,
+        file: new File([new Uint8Array(2048)], "renamed.mp4"),
+        name: "renamed.mp4",
+        fingerprint: { size: 2048, lastModified: 1 },
+      }),
+      now: () => "2026-10-22T11:00:00.000Z",
+    })
+    expect(result).toEqual({
+      ok: false,
+      message:
+        "The file matches interview.mp4, but it could not be read. Its Clips stay as they are.",
+      detail: '"renamed.mp4" could not be read',
+    })
+    expect(store.getState().project).toBe(before)
   })
 })

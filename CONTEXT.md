@@ -32,6 +32,10 @@ _Avoid_: Asset, Media, MediaItem, Footage, Origin, File
 A Source whose bytes are currently unreachable — the file moved, permission lapsed, or the machine has no link to it. Clips referring to it survive untouched; only the picture is missing.
 _Avoid_: Missing media, Broken link, Unlinked
 
+**Linked Source**:
+A Source whose bytes this machine can read right now. Linked and Offline are a Source's only two statuses; the status belongs to the machine and the moment, not to the Project, so it is never saved and never undone.
+_Avoid_: Online, Connected, Available
+
 **Relink**:
 Pointing an Offline Source at the bytes it lost, restoring every Clip that references it at once.
 _Avoid_: Reconnect, Locate, Repair
@@ -39,6 +43,10 @@ _Avoid_: Reconnect, Locate, Repair
 **Frame**:
 The atomic unit of time. A Frame is an integer index in the Project's timebase; there is no position between two Frames.
 _Avoid_: Tick, Time, Timestamp
+
+**In-point**:
+Where in its Source a Clip begins, as a time in the Source. A Clip shows its Source from the In-point for as many Frames as it lasts.
+_Avoid_: Offset, Trim start, Source start
 
 **Timebase**:
 The Project's frame rate, held as an exact ratio (e.g. 30000/1001) so Frame indices convert to real time without drift.
@@ -64,13 +72,49 @@ _Avoid_: Waypoint, Marker, Anchor
 The Frame currently being shown in the Preview.
 _Avoid_: Cursor, Scrubber, Current time
 
+**Timecode**:
+A Frame written for people as hours, minutes, seconds and Frames (`HH:MM:SS:FF`), counted on the wall clock: at 30000/1001 a second holds 30 or 29 Frames. Display only — nothing is ever addressed by Timecode.
+_Avoid_: SMPTE, Time display
+
+**Scrub**:
+Moving the Playhead by hand, Frame by Frame or by jumping, with the Preview showing each Frame it lands on.
+_Avoid_: Seek (outside playback), Jog
+
+**Playback**:
+The Timeline played in real time from the Playhead, picture following sound. Sound sets the pace; the picture skips Frames rather than make the sound wait.
+_Avoid_: Preview playback, Run
+
+**Transport**:
+What starts and stops Playback — the Play/Stop control and the state it drives. A Playhead moved during Playback is a seek, not a stop and a start.
+_Avoid_: Player, Controls
+
+**Skipped Frame**:
+A Frame Playback passed over to keep up with the sound. Counted by the engine; the visible form of picture yielding to sound.
+_Avoid_: Lost Frame
+
+**Dropped Frame**:
+A request for a Frame that got no picture because a newer request replaced it before it was drawn. Distinct from a Skipped Frame.
+_Avoid_: Missed Frame
+
 **Preview**:
 The composited image of the Timeline at the Playhead, shown while editing.
 _Avoid_: Viewer, Monitor, Canvas
 
+**Gesture**:
+One thing the user did — an import, a drag, a delete — however many commands it takes. A Gesture is one undo step and one save.
+_Avoid_: Transaction (in the interface), Action
+
+**Project list**:
+The Projects stored in this browser, shown when no Project is open.
+_Avoid_: Library, Recent files, Dashboard
+
 **Export**:
 Producing a finished media file from the whole Timeline.
 _Avoid_: Render, Encode, Output, Publish
+
+**Export quality**:
+One of High, Standard and Draft — a bitrate that scales with the Project's frame size — offered only if this machine can encode it when the export dialog opens.
+_Avoid_: Preset, Profile
 
 **Render**:
 Compositing the Timeline at a single Frame into an image. Both Preview and Export are built from Renders.

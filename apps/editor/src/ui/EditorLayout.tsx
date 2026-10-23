@@ -55,7 +55,12 @@
 //
 // A `fatal` from the engine is shown in the Preview's place. The alternative is the failure ADR
 // 0003 names: the canvas belongs to the worker, so a dead worker and a still picture look
-// identical from out here.
+// identical from out here. It says what still holds — the Project is saved, which it makes sure of
+// by flushing the saver before it says so — and what to do: reload (T093).
+//
+// A save that failed is shown across the top of the editor, with "Try again", for as long as it
+// stays failed: the Project in this tab is then newer than the one in storage, and the page asks
+// before it unloads.
 
 import { useEffect, useRef, useState } from "react"
 
@@ -64,11 +69,13 @@ import type { PixelSize, Timebase } from "@cutroom/model"
 import { createTransport, type Transport } from "@/audio/transport"
 import { streamExportAudio } from "@/audio/offline-mix"
 import { startEngine, type EngineClient } from "@/engine-client"
-import { useEditorStore } from "@/store"
+import { useEditorStore, type EngineFatalReport } from "@/store"
 import { createExportController, type ExportController } from "@/store/export"
 import { createSourceStatusTracker, type SourceStatusTracker } from "@/store/source-status"
 
 import { ExportDialog } from "./ExportDialog"
+import { reloadPage } from "./failure-wording"
+import { Notice } from "./Notice"
 import { pickSaveFile } from "./file-picker"
 import { RelinkPrompt } from "./RelinkPrompt"
 import { SourcesPanel } from "./SourcesPanel"
@@ -168,6 +175,103 @@ function ShownLabel({ engine }: { readonly engine: EngineClient | null }) {
   )
 }
 
+/** What is shown in the Preview's place once the engine has stopped. */
+function EngineStopped({ report }: { readonly report: EngineFatalReport }) {
+  const hasProject = useEditorStore((state) => state.project !== null)
+  const saveFailed = useEditorStore((state) => state.saveFailure !== null)
+  const [checked, setChecked] = useState(false)
+
+  // Whatever is outstanding is written before the screen says the Project is saved, so the claim
+  // is a fact rather than a hope. The saver reports a failure into the store, which this reads.
+  useEffect(() => {
+    let current = true
+    void useEditorStore
+      .getState()
+      .flushSaves()
+      .then(() => {
+        if (current) setChecked(true)
+      })
+    return () => {
+      current = false
+    }
+  }, [])
+
+  const saved = !checked
+    ? "Making sure your Project is saved…"
+    : !hasProject
+      ? "Nothing had been imported yet, so reloading loses nothing."
+      : saveFailed
+        ? "Your latest changes could not be saved (see the message above). Try saving again before you reload, or they will be lost."
+        : "Your Project is saved, so reloading loses nothing."
+
+  return (
+    <Notice
+      testId="engine-fatal"
+      tone="dark"
+      className="max-w-md"
+      title="Cutroom's engine stopped."
+      details={
+        // A stack usually opens with the reason itself; shown once, not twice.
+        report.stack === undefined
+          ? report.reason
+          : report.stack.includes(report.reason)
+            ? report.stack
+            : `${report.reason}\n\n${report.stack}`
+      }
+      actions={[{ label: "Reload", testId: "engine-fatal-reload", onClick: reloadPage }]}
+    >
+      <p>
+        The Preview, playback, importing and exporting all need it, so they are unavailable until
+        the page is reloaded. The Timeline and its Clips are untouched.
+      </p>
+      <p data-testid="engine-fatal-saved">{saved}</p>
+    </Notice>
+  )
+}
+
+/** A write of the Project that failed, across the top of the editor until one succeeds. */
+function SaveFailure() {
+  const failure = useEditorStore((state) => state.saveFailure)
+  const retrySave = useEditorStore((state) => state.retrySave)
+  const [retrying, setRetrying] = useState(false)
+
+  useEffect(() => {
+    if (failure === null) return
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener("beforeunload", onBeforeUnload)
+    return () => window.removeEventListener("beforeunload", onBeforeUnload)
+  }, [failure])
+
+  if (failure === null) return null
+  return (
+    <Notice
+      testId="save-failure"
+      className="mx-3 mt-2"
+      title={failure.title}
+      details={failure.detail}
+      actions={[
+        {
+          label: retrying ? "Saving…" : "Try again",
+          testId: "save-retry",
+          disabled: retrying,
+          onClick: () => {
+            setRetrying(true)
+            void retrySave().finally(() => setRetrying(false))
+          },
+        },
+      ]}
+    >
+      <p>{failure.explanation}</p>
+      <p>
+        Your edits are still here in this tab, and each new edit tries again. Until a save succeeds,
+        closing or reloading this tab would lose them, so the way back to Projects stays closed.
+      </p>
+    </Notice>
+  )
+}
+
 /**
  * The Frame the shell asks the engine for: the Playhead while stopped, and `null` while playing,
  * when the transport asks instead. A selector rather than `playheadFrame` itself, so a Playhead
@@ -238,7 +342,7 @@ export function EditorLayout() {
     })
     setExporter(exports)
     const stopWatchingFatal = client.on("fatal", (event) => {
-      reportEngineFatal(event.reason)
+      reportEngineFatal(event.reason, event.stack)
     })
     void client.ready.then(
       (capabilities) => {
@@ -341,8 +445,12 @@ export function EditorLayout() {
           onClose={() => {
             setExportOpen(false)
           }}
+          onOpen={() => {
+            setExportOpen(true)
+          }}
         />
       )}
+      <SaveFailure />
 
       <div className="flex min-h-0 flex-1">
         <SourcesPanel tracker={tracker} />
@@ -363,16 +471,18 @@ export function EditorLayout() {
                 className="max-h-full max-w-full object-contain"
               />
             ) : (
-              <p data-testid="engine-fatal" className="max-w-md text-center text-xs text-white">
-                The engine stopped and the Preview is no longer live. {engineFatal}
-              </p>
+              <EngineStopped report={engineFatal} />
             )}
           </div>
           <div className="flex shrink-0 items-center gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
             <PlayheadLabel />
             <ShownLabel engine={engine} />
             <span data-testid="engine-renderer" className="ml-auto">
-              {renderer === null ? "engine starting" : `engine: ${renderer}`}
+              {engineFatal !== null
+                ? "engine stopped"
+                : renderer === null
+                  ? "engine starting"
+                  : `engine: ${renderer}`}
             </span>
           </div>
         </section>

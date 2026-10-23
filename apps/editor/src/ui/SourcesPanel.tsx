@@ -10,7 +10,10 @@
 // right now.
 //
 // A refusal is shown here, in words, beside the button that caused it, and the Project is left
-// exactly as it was (FR-003): `importPickedFile` writes nothing until the engine has said yes.
+// exactly as it was (FR-003): `importPickedFile` writes nothing until the engine has said yes. It is
+// a `Notice` like every other failure (T093): what happened, the action, then the detail folded
+// away. A file that cannot be used and an import that could not be attempted — the picker failing,
+// the engine having stopped — are told apart, because "cannot be used" would blame the file.
 //
 // The duration is the Source's own length laid on the Project's grid — how many of the Project's
 // Frames it covers, which is exactly the length its Clip is given (T041) — and shown as a timecode
@@ -27,12 +30,10 @@ import { useEditorStore, type SourceStatus } from "@/store"
 import { importPickedFile } from "@/store/import-source"
 import type { SourceStatusTracker } from "@/store/source-status"
 
+import { reloadPage, technicalDetail } from "./failure-wording"
 import { pickOneFile } from "./file-picker"
+import { Notice } from "./Notice"
 import { formatTimecode } from "./timecode"
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 /** The Source's length in the Project's Frames, as a timecode and a count. */
 function durationOf(project: Project, source: Source): string {
@@ -55,11 +56,18 @@ const STATUS_LABEL: Record<SourceStatus | "checking", string> = {
 type ImportState =
   | { readonly state: "idle" }
   | { readonly state: "reading" }
-  | { readonly state: "refused"; readonly name: string; readonly reason: string }
+  | {
+      readonly state: "refused" | "failed"
+      readonly name: string
+      readonly reason: string
+      readonly detail?: string
+    }
+  | { readonly state: "no-picker"; readonly detail: string }
 
 export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null }) {
   const project = useEditorStore((state) => state.project)
   const sourceStatus = useEditorStore((state) => state.sourceStatus)
+  const engineStopped = useEditorStore((state) => state.engineFatal !== null)
   const [importing, setImporting] = useState<ImportState>({ state: "idle" })
 
   async function onImport() {
@@ -69,7 +77,7 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
       // First act of the click: the picker needs the gesture, and an `await` before it can lose it.
       handle = await pickOneFile()
     } catch (error) {
-      setImporting({ state: "refused", name: "The file", reason: describe(error) })
+      setImporting({ state: "no-picker", detail: technicalDetail(error) })
       return
     }
     if (handle === null) return // the user closed the picker
@@ -85,7 +93,12 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
     setImporting(
       outcome.status === "imported"
         ? { state: "idle" }
-        : { state: "refused", name: outcome.name, reason: outcome.reason }
+        : {
+            state: outcome.status,
+            name: outcome.name,
+            reason: outcome.reason,
+            ...(outcome.detail === undefined ? {} : { detail: outcome.detail }),
+          }
     )
   }
 
@@ -103,7 +116,10 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
           variant="outline"
           size="sm"
           data-testid="import-source"
-          disabled={tracker === null || importing.state === "reading"}
+          disabled={tracker === null || engineStopped || importing.state === "reading"}
+          title={
+            engineStopped ? "Cutroom's engine has stopped. Reload the page to import." : undefined
+          }
           onClick={() => void onImport()}
         >
           Import…
@@ -117,13 +133,51 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
       ) : null}
 
       {importing.state === "refused" ? (
-        <p
-          data-testid="import-refusal"
-          role="alert"
-          className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs"
+        <Notice
+          testId="import-refusal"
+          title={`${importing.name} cannot be used.`}
+          details={importing.detail}
+          actions={[
+            {
+              label: "Choose another file…",
+              testId: "import-another",
+              disabled: tracker === null || engineStopped,
+              onClick: () => void onImport(),
+            },
+          ]}
         >
-          <span className="font-medium">{importing.name} cannot be used.</span> {importing.reason}
-        </p>
+          <p>{importing.reason}</p>
+          <p className="text-muted-foreground">Nothing was added to the Project.</p>
+        </Notice>
+      ) : null}
+
+      {importing.state === "failed" ? (
+        <Notice
+          testId="import-failed"
+          title={`${importing.name} was not imported.`}
+          details={importing.detail}
+          actions={[{ label: "Reload", testId: "import-failed-reload", onClick: reloadPage }]}
+        >
+          <p>{importing.reason}</p>
+        </Notice>
+      ) : null}
+
+      {importing.state === "no-picker" ? (
+        <Notice
+          testId="import-picker-failed"
+          title="The file picker could not be opened."
+          details={importing.detail}
+          actions={[
+            {
+              label: "Try again",
+              testId: "import-retry",
+              disabled: tracker === null || engineStopped,
+              onClick: () => void onImport(),
+            },
+          ]}
+        >
+          <p>Nothing was imported.</p>
+        </Notice>
       ) : null}
 
       {sources.length === 0 || project === null ? (

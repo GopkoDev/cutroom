@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { CommandError, type Clip, type Command, type Project, type Source } from "@cutroom/model"
 
-import { canRedo, canUndo, createEditorStore, TransactionError } from "./index"
+import { createProjectSaver, ProjectLoadError } from "@/storage/projects"
+
+import { canRedo, canUndo, createEditorStore, TransactionError, type EditorStore } from "./index"
 
 // The store's promises are about history, so most tests here are a sequence of edits followed by
 // undo/redo, compared to the Project at an earlier point with `toStrictEqual` — "the same
@@ -349,6 +351,115 @@ describe("opening a Project", () => {
     const { store } = setup(undefined)
     await store.getState().openProject("missing")
     expect(store.getState().screen).toBe("projects")
-    expect(store.getState().openFailure).toMatch(/no longer/)
+    expect(store.getState().openFailure?.title).toMatch(/no longer/)
+  })
+})
+
+describe("failures the user is told about (T093)", () => {
+  /** A store over a real saver whose writes fail until `heal` is called. */
+  function failingSaves() {
+    let failing = true
+    const written: Project[] = []
+    let store: EditorStore | null = null
+    const saver = createProjectSaver({
+      delayMs: 0,
+      write: async (project) => {
+        if (failing) throw new DOMException("The quota has been exceeded.", "QuotaExceededError")
+        written.push(project)
+      },
+      onFailure: (error) => store?.getState().reportSaveFailure(error),
+      onSaved: () => store?.getState().reportSaved(),
+    })
+    store = createEditorStore({ saver, loadProject: vi.fn(async () => undefined) })
+    return {
+      store,
+      written,
+      heal: () => {
+        failing = false
+      },
+    }
+  }
+
+  it("shows a save that failed, in words, with the platform's own words kept for Details", async () => {
+    const { store } = failingSaves()
+    store.getState().newProject()
+    store.getState().run(create)
+    await store.getState().flushSaves()
+
+    const failure = store.getState().saveFailure
+    expect(failure?.title).toBe("Your latest changes could not be saved.")
+    expect(failure?.explanation).toMatch(/run out of space/)
+    expect(failure?.detail).toBe("QuotaExceededError: The quota has been exceeded.")
+  })
+
+  it("takes the failure back once Try again lands the write", async () => {
+    const { store, written, heal } = failingSaves()
+    store.getState().newProject()
+    store.getState().run(create)
+    await store.getState().flushSaves()
+    expect(store.getState().saveFailure).not.toBeNull()
+
+    heal()
+    await store.getState().retrySave()
+    expect(store.getState().saveFailure).toBeNull()
+    expect(written.at(-1)).toBe(store.getState().project)
+  })
+
+  it("does not leave the editor while the Project cannot be saved, since leaving would lose it", async () => {
+    const { store, heal } = failingSaves()
+    store.getState().newProject()
+    store.getState().run(create)
+    await store.getState().closeProject()
+    expect(store.getState().screen).toBe("editor")
+    expect(store.getState().project).not.toBeNull()
+
+    heal()
+    await store.getState().retrySave()
+    await store.getState().closeProject()
+    expect(store.getState().screen).toBe("projects")
+  })
+
+  it("names the Project that could not be opened and keeps the reason for Details", async () => {
+    const saver = { save: vi.fn(), flush: vi.fn(async () => undefined) }
+    const store = createEditorStore({
+      saver,
+      loadProject: vi.fn(async () => {
+        throw new ProjectLoadError(
+          "p-1",
+          new TypeError("migrateProject: a Project must be an object")
+        )
+      }),
+    })
+    await store.getState().openProject("p-1", "Opening titles")
+    const failure = store.getState().openFailure
+    expect(failure?.title).toBe("Opening titles could not be opened.")
+    expect(failure?.explanation).toMatch(/left exactly as it is/)
+    expect(failure?.detail).toMatch(/migrateProject/)
+    expect(store.getState().screen).toBe("projects")
+  })
+
+  it("says storage, not damage, when opening fails for a reason other than the document", async () => {
+    const store = createEditorStore({
+      saver: { save: vi.fn(), flush: vi.fn(async () => undefined) },
+      loadProject: vi.fn(async () => {
+        throw new DOMException("Internal error.", "UnknownError")
+      }),
+    })
+    await store.getState().openProject("p-1", "Opening titles")
+    expect(store.getState().openFailure).toEqual({
+      title: "Opening titles could not be opened.",
+      explanation: "The browser could not use Cutroom's storage just now. Try again.",
+      detail: "UnknownError: Internal error.",
+    })
+  })
+
+  it("keeps the first fatal, which is the one that explains what happened", () => {
+    const { store } = setup()
+    store.getState().reportEngineFatal("the GPU context was lost", "at render")
+    store.getState().reportEngineFatal("a later message")
+    expect(store.getState().engineFatal).toEqual({
+      reason: "the GPU context was lost",
+      stack: "at render",
+    })
   })
 })

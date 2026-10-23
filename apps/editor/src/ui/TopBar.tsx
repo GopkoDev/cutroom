@@ -101,6 +101,10 @@ export function TopBar({
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
   const closeProject = useEditorStore((state) => state.closeProject)
+  // Leaving the editor while the Project cannot be saved would throw the edits away (T093).
+  const unsaved = useEditorStore((state) => state.saveFailure !== null)
+  // Playing and exporting both need the engine, so they are closed once it has stopped (T093).
+  const engineStopped = useEditorStore((state) => state.engineFatal !== null)
 
   useEffect(() => {
     if (transport === null) return
@@ -125,8 +129,14 @@ export function TopBar({
       <Button
         variant="ghost"
         size="sm"
-        disabled={exporting}
-        title={exporting ? "An export is running. Cancel it or let it finish first." : undefined}
+        disabled={exporting || unsaved}
+        title={
+          exporting
+            ? "An export is running. Cancel it or let it finish first."
+            : unsaved
+              ? "Your latest changes are not saved yet. Try saving again first."
+              : undefined
+        }
         onClick={() => void closeProject()}
       >
         Projects
@@ -142,7 +152,7 @@ export function TopBar({
         data-testid="transport"
         aria-pressed={playing}
         aria-keyshortcuts="Space"
-        disabled={transport === null || project === null}
+        disabled={transport === null || project === null || engineStopped}
         onClick={() => {
           transport?.toggle()
         }}
@@ -157,7 +167,10 @@ export function TopBar({
           variant="outline"
           size="sm"
           data-testid="export-open"
-          disabled={project === null || exporter === null}
+          disabled={project === null || exporter === null || engineStopped}
+          title={
+            engineStopped ? "Cutroom's engine has stopped. Reload the page to export." : undefined
+          }
           onClick={() => {
             onExport?.()
           }}

@@ -32,8 +32,8 @@ a verdict — if they disagree with the criteria, re-measure here before conclud
 | CPU | Apple M4, 10 cores — 4 performance, 6 efficiency |
 | GPU | Apple M4, 8 cores |
 | RAM | 16 GB unified |
-| OS | macOS 26.5.2 (25F84) |
-| Browser | Google Chrome 150 |
+| OS | macOS 26.6.2 (25G83) — 26.5.2 (25F84) when T014 named it |
+| Browser | Google Chrome 156.0.8078.47 — 150 when T014 named it |
 
 Two things follow from this machine in particular, and both matter when reading a failure:
 
@@ -52,6 +52,9 @@ pnpm dev            # serves apps/editor
 Open the printed URL in Chrome.
 
 ## Manual validation
+
+The walk of this list on the reference machine, step by step with its numbers, is recorded in
+[validation.md](./validation.md) (T096).
 
 ### US1 — bring a video in and see it
 
@@ -122,8 +125,8 @@ Open the printed URL in Chrome.
 ## Automated validation
 
 ```bash
-pnpm test          # Vitest — packages/model only: timebase, reducer, migrations, scene
-pnpm test:e2e      # Playwright against Chromium — import, render, playback, export
+pnpm test          # Vitest — packages/model and apps/editor
+pnpm test:e2e      # Playwright against Google Chrome (channel "chrome") — import, render, playback, export
 pnpm test:e2e:slow # the two ten-minute measurements (A/V sync, sustained rate), on a fresh server
 ```
 
@@ -131,6 +134,7 @@ The end-to-end suite covers what cannot be faked:
 
 | Check | Method | Criterion |
 |---|---|---|
+| Page load to Frame 0 | Load, import the fixture, time from `load` to Frame 0 on screen minus picker time (`page-load-to-frame-0.spec.ts`) | SC-001 |
 | A Frame renders correctly | Import fixture, request Frame 210, read back the canvas, OCR/compare the counter region | SC-003, FR-007 |
 | Timebase mismatch | Same with `sync-1080p2997.mp4` in a 30 fps Project | Edge case |
 | A/V sync | Play `sync-1080p30-10min.mp4` end to end, sample reported Frame against `audioContext.currentTime` | SC-002 |

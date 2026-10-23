@@ -4,7 +4,7 @@
 // transport passes through the one scheduler below. That is the answer to whether the scrub latch
 // T044 wrote should be generalised or joined by a second one: generalised, because the thing it
 // serialises is not "scrubs" but **the sinks**. A scrub and a clock Frame draw from the same
-// `CanvasSink` of the same Clip, into the same pooled canvas (canvas-sink.ts, R1); two latches
+// sink of the same Clip, into the same pooled canvas (canvas-sink.ts, R1); two latches
 // would let one of each be in flight at once, and the second pull would either throw or overwrite
 // the first one's picture before it was drawn. A seek and a live iterator on one decoder do not
 // mix either (R2). One latch makes both impossible by construction rather than by care.
@@ -24,22 +24,42 @@
 // playback run. Only this side can count them honestly: it knows where a run begins, so a seek
 // (`transport: playing` again) is never mistaken for a stall.
 //
-// **Transport, in order.** `transport` messages change which path a clock Frame takes and close
-// or open iterators, and those must not happen under a Render that is drawing from them. So a
-// transport change is a job like a Render: it waits for the one in flight, it runs before any
-// request that arrived after it, and only the newest one pending is kept, since an older one is
-// undone by the newer anyway.
+// **Transport, in order.** `transport` messages close or open iterators, and those must not happen
+// under a Render that is drawing from them. So a transport change is a job like a Render: it waits
+// for the one in flight, it runs before any request that arrived after it, and only the newest one
+// pending is kept, since an older one is undone by the newer anyway.
 //
-// While stopped, a `clock` request is answered by random access like a scrub. Streams are opened
-// by playback, and a late clock Frame arriving after `stopped` must not open a decoder that would
-// then sit running ahead of a Preview nobody is playing.
+// **One path for every Frame (ADR 0017).** A scrub, a clock Frame and a clock Frame that arrives
+// after `stopped` are all rendered from the Clips' streams under the one walk rule
+// (playback/stream.ts): walked forward when the Frame is ahead of the stream within reach, opened
+// afresh otherwise. What the transport adds is only where streams start and when they end:
+// `playing` keeps each stream that can walk to `fromFrame` — a seek forward within the GOP the
+// stream is in, say — and opens one at `fromFrame` for every other visible Clip; `stopped` closes
+// them all, so a decoder playback was running ahead does not outlive the run.
+//
+// **Parked decoders, and for how long.** A stream a scrub opens stays open after it, parked ahead
+// of the Frame on screen, for the next step to walk on from. Parked is not free: the decoder
+// races ahead of a cold start before Mediabunny's backpressure catches up, and measured on the
+// reference machine a parked stream holds about 45 decoded Frames — some 140 MB of a 1080p Source
+// and over 500 MB of a 4K one, per visible Clip. So a stopped Preview keeps them for `PARK_MS`
+// after the last job and then closes them all (a stopped Preview holding no decoder, as T090
+// left it), besides closing a stream whenever its Clip leaves the screen, its Source is detached,
+// the transport changes, or a request needs it somewhere it cannot walk. The cost of the timeout
+// is only that a step after a long look at one Frame is a cold seek again — what every step was
+// before ADR 0017.
 
 import type { Frame, Scene } from "@cutroom/model"
 
 import type { SceneRenderer } from "../compose/renderer"
 import { previewSinks } from "../sources/canvas-sink"
-import { renderByRandomAccess } from "./scrub"
 import { openStreams, renderByStreaming } from "./stream"
+
+/**
+ * How long a stopped Preview keeps its decoders parked after its last job (header). Long enough to
+ * cover the pauses between steps and the stops in a drag; short enough that the Frames a parked
+ * decoder holds are not kept for a Preview nobody is touching.
+ */
+export const PARK_MS = 3_000
 
 /** One `render-frame`, with the Scene it is to be rendered from. */
 export interface FrameRequest {
@@ -92,17 +112,19 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
   let lastShown: Frame | null = null
   /** The Scene revision the last clock Frame was rendered from. */
   let shownRevision: number | null = null
+  /** Closes the parked decoders of a stopped Preview once it has been left alone for `PARK_MS`. */
+  let parkTimer: ReturnType<typeof setTimeout> | null = null
 
   async function run(job: Job): Promise<void> {
     if (job.kind === "transport") {
       const { state, fromFrame, scene } = job.change
-      // Whether starting, restarting from a seek, or stopping: no iterator positioned for the old
-      // run is worth continuing.
-      previewSinks.abandonStreams()
       playing = state === "playing"
       // The run begins at `fromFrame`, so a first clock Frame beyond it skipped the ones between.
       lastShown = playing ? fromFrame - 1 : null
+      // Starting or seeking: a stream that can walk to `fromFrame` is kept (the walk rule), every
+      // other one reopened there. Stopping, or nothing to play yet: none is worth continuing.
       if (playing && scene !== null) await openStreams(previewSinks, scene, fromFrame)
+      else previewSinks.abandonStreams()
       return
     }
 
@@ -128,7 +150,7 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
     // A scrub during playback is the user taking the Playhead somewhere by hand: the run's count
     // of skipped Frames starts again from the next clock Frame rather than counting the jump.
     if (reason === "scrub" && playing) lastShown = null
-    await renderByRandomAccess(renderer, scene, frame)
+    await renderByStreaming(previewSinks, renderer, scene, frame)
     report.rendered(frame, revision, 0)
   }
 
@@ -144,10 +166,28 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
       // than sitting here until some later request happens to flush it.
       for (const job of pending) if (job.kind === "render") report.dropped(1)
       pending = []
+      if (!playing) park()
     }
   }
 
+  /**
+   * Starts the stopped Preview's `PARK_MS` countdown. It closes the streams only from idle — no
+   * job running or waiting — so it never pulls a stream from under a Render, and any new job
+   * cancels it first (`enqueue`).
+   */
+  function park(): void {
+    if (parkTimer !== null) clearTimeout(parkTimer)
+    parkTimer = setTimeout(() => {
+      parkTimer = null
+      if (!running && pending.length === 0 && !playing) previewSinks.abandonStreams()
+    }, PARK_MS)
+  }
+
   function enqueue(job: Job): Promise<void> {
+    if (parkTimer !== null) {
+      clearTimeout(parkTimer)
+      parkTimer = null
+    }
     const displaced = pending.findIndex((waiting) => waiting.kind === job.kind)
     if (displaced !== -1) {
       pending.splice(displaced, 1)

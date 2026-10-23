@@ -152,8 +152,8 @@ export function frameToSeconds(timebase: Timebase, frame: number): number {
  * denominator up to 10⁶, which finds 1001/30000 exactly), so the file's own clock ticks once per
  * Frame rather than rounding every Frame onto a grid of its own choosing.
  */
-export function framesPerSecond(timebase: Timebase): number {
-  assertRatio(timebase, "framesPerSecond", "Timebase", 1)
+export function timebaseAsNumber(timebase: Timebase): number {
+  assertRatio(timebase, "timebaseAsNumber", "Timebase", 1)
   return timebase.numerator / timebase.denominator
 }
 

@@ -372,3 +372,50 @@ test("far seeks into minute 9 of the 10 min 1080p fixture show their Frame withi
   summarise(results)
   expectWithinBudget(results)
 })
+
+// ADR 0017: a scrub to a Frame ahead of where the decoder stands, within the same GOP, walks on
+// from there instead of decoding again from the keyframe. Checked on the picture — every move in
+// `measure` reads the burned-in counter, so a walk that landed one Frame off fails here — and on
+// the clock, relatively: the same target Frame, the last of a GOP (the costliest to seek to), is
+// reached once by a click from far away and once by a one-Frame step from the Frame before it.
+// Without the walk both decode the whole GOP and take about as long; with it the step costs one
+// Frame's decode. The time compared is the engine's own (`render-frame` posted → `frame-rendered`
+// back), so React and input handling, the same for both, do not blur the comparison.
+test("a forward step within a GOP walks from the decoder's position: exact Frame, faster than a cold seek", async ({
+  page,
+}) => {
+  await openWith(page, "sync-1080p30.mp4", 900)
+  const cold: Measured[] = []
+  const walked: Measured[] = []
+  const engineMs = (m: Measured) => m.renderedMs - (m.postedMs ?? 0)
+
+  for (const k of [2, 5, 8, 11, 14]) {
+    const last = k * GOP - 1
+    // Cold: from the other end of the Timeline, so no decoder stands anywhere near.
+    await measure(page, "away", { click: last < 450 ? 880 : 20 })
+    cold.push(await measure(page, "cold seek to GOP end", { click: last }))
+    // Walked: land on the Frame before (itself a cold seek), then step onto the GOP's last Frame.
+    await measure(page, "away", { click: last < 450 ? 880 : 20 })
+    await measure(page, "cold seek", { click: last - 1 })
+    walked.push(await measure(page, "step onto GOP end", { key: "ArrowRight", to: last }))
+  }
+  // A ten-Frame step and a run of one-Frame steps, within one GOP, each checked on the counter.
+  await measure(page, "cold seek", { click: 6 * GOP + 5 })
+  await measure(page, "step +10", { key: "Shift+ArrowRight", to: 6 * GOP + 15 })
+  for (let to = 6 * GOP + 16; to <= 6 * GOP + 20; to++) {
+    await measure(page, "step +1", { key: "ArrowRight", to })
+  }
+
+  summarise([...cold, ...walked])
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
+  const coldMs = median(cold.map(engineMs))
+  const walkedMs = median(walked.map(engineMs))
+  test.info().annotations.push({
+    type: "walk vs seek",
+    description: `engine time to the GOP's last Frame: cold seek median ${coldMs.toFixed(1)} ms, one-Frame step median ${walkedMs.toFixed(1)} ms`,
+  })
+  expect(
+    walkedMs,
+    `a step onto the GOP's last Frame (median ${walkedMs.toFixed(1)} ms) should cost well under a cold seek to it (median ${coldMs.toFixed(1)} ms)`
+  ).toBeLessThan(coldMs / 2)
+})

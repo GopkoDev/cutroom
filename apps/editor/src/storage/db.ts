@@ -88,6 +88,31 @@ function upgrade(database: CutroomDatabase, from: number): void {
 
 let connection: Promise<CutroomDatabase> | undefined
 
+/** Told when opening is held up by another tab, and again (`false`) once it is not. */
+export type StorageBlockedListener = (blocked: boolean) => void
+
+const blockedListeners = new Set<StorageBlockedListener>()
+let blockedNow = false
+
+function setBlocked(blocked: boolean): void {
+  if (blockedNow === blocked) return
+  blockedNow = blocked
+  for (const listener of [...blockedListeners]) listener(blocked)
+}
+
+/**
+ * Subscribes to whether opening the database is held up by another tab (T093). Without it, the
+ * Project list would say "Looking for your Projects…" for as long as the other tab stays open, and
+ * the only explanation would be in the console. Called at once with the current answer.
+ */
+export function onStorageBlocked(listener: StorageBlockedListener): () => void {
+  blockedListeners.add(listener)
+  listener(blockedNow)
+  return () => {
+    blockedListeners.delete(listener)
+  }
+}
+
 /**
  * Opens the database, or hands back the connection already open.
  *
@@ -102,12 +127,14 @@ export function openCutroomDatabase(): Promise<CutroomDatabase> {
     // Another tab is holding this database at an older version and blocking our upgrade. Nothing
     // useful can happen until it lets go, and it will not: the older tab has no idea it is in the
     // way. Reported rather than handled, because closing *this* connection would not help — the
-    // block is the other tab's.
+    // block is the other tab's. Reported to the screen as well as the console (`onStorageBlocked`),
+    // so the user learns what to close.
     blocked(currentVersion) {
       console.warn(
         `Cutroom cannot upgrade its storage from version ${currentVersion} to ` +
           `${DATABASE_VERSION} while another tab has it open. Close the other tabs and reload.`
       )
+      setBlocked(true)
     },
 
     // The mirror image: *we* are the old tab, and a newer one wants to upgrade. Let go at once —
@@ -125,10 +152,17 @@ export function openCutroomDatabase(): Promise<CutroomDatabase> {
     terminated() {
       connection = undefined
     },
-  }).catch((reason: unknown) => {
-    connection = undefined
-    throw reason
-  })
+  }).then(
+    (database) => {
+      setBlocked(false)
+      return database
+    },
+    (reason: unknown) => {
+      connection = undefined
+      setBlocked(false)
+      throw reason
+    }
+  )
 
   return connection
 }

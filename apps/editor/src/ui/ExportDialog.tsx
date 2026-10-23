@@ -45,15 +45,32 @@ import {
   type EncoderSupport,
   type ExportOffer,
   type ExportQuality,
+  type ExportSettings,
 } from "./export-settings"
+import {
+  explainExportFailure,
+  reloadPage,
+  technicalDetail,
+  type ExportFailureAction,
+} from "./failure-wording"
 import { canPickSaveFile } from "./file-picker"
+import { Notice } from "./Notice"
+
+/** The settings the last export was started with, so "Try again" can start the same one. */
+interface LastStart {
+  readonly settings: ExportSettings
+  /** Whether the Timeline had sound then. If that has changed, the settings are asked again. */
+  readonly hadSound: boolean
+}
+
+const RETRY_LABEL: Record<ExportFailureAction, string> = {
+  "try-again": "Try again",
+  "choose-another-name": "Choose another name…",
+  reload: "Reload",
+}
 
 const PANEL =
   "fixed top-12 right-3 z-50 flex w-96 max-w-[calc(100vw-1.5rem)] flex-col gap-3 rounded-lg border bg-background p-4 text-xs shadow-lg"
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 function soundLine(offer: ExportOffer): string {
   switch (offer.sound.kind) {
@@ -114,10 +131,12 @@ function Settings({
   controller,
   support,
   onClose,
+  onStart,
 }: {
   readonly controller: ExportController
   readonly support: EncoderSupport
   readonly onClose: () => void
+  readonly onStart: (start: LastStart) => void
 }) {
   const project = useEditorStore((state) => state.project)
   const sourceStatus = useEditorStore((state) => state.sourceStatus)
@@ -133,6 +152,8 @@ function Settings({
   // What was asked, so an answer to an older question (a frame size since changed) is not read
   // as the answer to this one. The choice is keyed the same way and starts from the preselection.
   const question = `${width}x${height}:${hasSound ? "sound" : "silent"}`
+  // Bumped by "Try again" after the machine could not be asked.
+  const [attempt, setAttempt] = useState(0)
   const [answer, setAnswer] = useState<{
     readonly question: string
     readonly offer: ExportOffer | null
@@ -153,13 +174,13 @@ function Settings({
         if (current) setAnswer({ question, offer, failure: null })
       },
       (error: unknown) => {
-        if (current) setAnswer({ question, offer: null, failure: describe(error) })
+        if (current) setAnswer({ question, offer: null, failure: technicalDetail(error) })
       }
     )
     return () => {
       current = false
     }
-  }, [question, width, height, hasSound, support])
+  }, [question, width, height, hasSound, support, attempt])
 
   const answered = answer?.question === question ? answer : null
   const offer = answered?.offer ?? null
@@ -186,7 +207,9 @@ function Settings({
     // The first act of the click: `start` opens the save picker before it awaits anything, and
     // freezes the Project the store holds at this instant (T075, T076).
     const atClick = useEditorStore.getState().project
-    if (atClick !== null) void controller.start(atClick, ready.settings)
+    if (atClick === null) return
+    void controller.start(atClick, ready.settings)
+    onStart({ settings: ready.settings, hadSound: timelineHasSound(atClick) })
   }
 
   return (
@@ -197,11 +220,27 @@ function Settings({
       </p>
 
       {offer === null ? (
-        <p data-testid="export-probing">
-          {probeFailure === null
-            ? "Asking this machine what it can encode…"
-            : `Could not ask this machine what it can encode: ${probeFailure}`}
-        </p>
+        probeFailure === null ? (
+          <p data-testid="export-probing">Asking this machine what it can encode…</p>
+        ) : (
+          <Notice
+            testId="export-probe-failed"
+            title="Cutroom could not ask this machine what it can encode."
+            details={probeFailure}
+            actions={[
+              {
+                label: "Try again",
+                testId: "export-probe-retry",
+                onClick: () => {
+                  setAnswer(null)
+                  setAttempt((count) => count + 1)
+                },
+              },
+            ]}
+          >
+            <p>Without that answer no export settings can be offered.</p>
+          </Notice>
+        )
       ) : (
         <>
           <fieldset className="flex flex-col gap-1.5">
@@ -359,10 +398,17 @@ function Progress({
 function Ending({
   status,
   onClose,
+  onRetry,
 }: {
   readonly status: Extract<ExportStatus, { phase: "done" | "cancelled" | "failed" | "refused" }>
   readonly onClose: () => void
+  /** Starts the same export again — the first act of the click, so the save picker can open. */
+  readonly onRetry: () => void
 }) {
+  const failure =
+    status.phase === "failed"
+      ? explainExportFailure(status.stage, status.reason, status.fileName)
+      : null
   return (
     <>
       {status.phase === "done" ? (
@@ -371,24 +417,34 @@ function Ending({
           {status.withSound ? "" : ", no sound"}) in {formatDuration(status.elapsedMs)}.
         </p>
       ) : status.phase === "refused" ? (
-        <p data-testid="export-refused" role="alert" className="text-destructive">
-          Not exported: <span className="font-medium">{status.fileName}</span> is the file the
-          Source {status.sourceName} reads from, and saving over it would destroy that Source.
-          Nothing was written to it. Export again and choose another name.
-        </p>
+        <Notice
+          testId="export-refused"
+          title={`Not exported: ${status.fileName} is the file the Source ${status.sourceName} reads from.`}
+          actions={[{ label: "Choose another name…", testId: "export-retry", onClick: onRetry }]}
+        >
+          <p>Saving over it would destroy that Source. Nothing was written to it.</p>
+        </Notice>
       ) : status.phase === "cancelled" ? (
         <p data-testid="export-cancelled" data-leftover={status.leftover}>
           Export cancelled. {leftoverLine(status.fileName, status.leftover)}
         </p>
-      ) : (
-        <p
-          data-testid="export-failed"
-          data-leftover={status.leftover ?? "none"}
-          role="alert"
-          className="text-destructive"
+      ) : failure === null ? null : (
+        <Notice
+          testId="export-failed"
+          data={{ "data-leftover": status.leftover ?? "none", "data-stage": status.stage }}
+          title={failure.title}
+          details={status.reason}
+          actions={[
+            {
+              label: RETRY_LABEL[failure.action],
+              testId: "export-retry",
+              onClick: failure.action === "reload" ? reloadPage : onRetry,
+            },
+          ]}
         >
-          The export failed: {status.reason} {leftoverLine(status.fileName, status.leftover)}
-        </p>
+          <p>{failure.explanation}</p>
+          <p>{leftoverLine(status.fileName, status.leftover)}</p>
+        </Notice>
       )}
       <div className="flex justify-end">
         <Button size="sm" data-testid="export-dismiss" onClick={onClose}>
@@ -403,15 +459,19 @@ export function ExportDialog({
   controller,
   open,
   onClose,
+  onOpen,
   support = defaultSupport,
 }: {
   readonly controller: ExportController
   /** Whether the user has the dialog open. A running or finished export shows regardless. */
   readonly open: boolean
   readonly onClose: () => void
+  /** Opens the dialog again, for a "Try again" that goes back to the settings. */
+  readonly onOpen?: () => void
   readonly support?: EncoderSupport
 }) {
   const status = useStore(controller.store, (state) => state.status)
+  const [lastStart, setLastStart] = useState<LastStart | null>(null)
   useLeaveGuard(isExportBusy(status))
 
   const choosingSettings = status.phase === "idle" || status.phase === "choosing-destination"
@@ -422,15 +482,36 @@ export function ExportDialog({
     onClose()
   }
 
+  // The same export again, straight to the save picker — unless the Timeline has gained or lost
+  // its sound since, when the settings (and FR-024's question) have to be asked again.
+  const retry = () => {
+    onOpen?.()
+    const project = useEditorStore.getState().project
+    if (
+      project !== null &&
+      lastStart !== null &&
+      timelineHasSound(project) === lastStart.hadSound
+    ) {
+      void controller.start(project, lastStart.settings)
+    } else {
+      controller.dismiss()
+    }
+  }
+
   return (
     <section role="dialog" aria-label="Export" data-testid="export-dialog" className={PANEL}>
       <h2 className="text-sm font-medium">Export</h2>
       {choosingSettings ? (
-        <Settings controller={controller} support={support} onClose={onClose} />
+        <Settings
+          controller={controller}
+          support={support}
+          onClose={onClose}
+          onStart={setLastStart}
+        />
       ) : status.phase === "running" || status.phase === "cancelling" ? (
         <Progress controller={controller} status={status} />
       ) : (
-        <Ending status={status} onClose={close} />
+        <Ending status={status} onClose={close} onRetry={retry} />
       )}
     </section>
   )

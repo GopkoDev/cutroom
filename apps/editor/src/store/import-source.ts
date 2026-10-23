@@ -11,7 +11,7 @@
 //   3. **Remember the handle** in the device-local link table, so the Source can be reached again
 //      after a reload. Before the document names the Source, not after: a Project that names a
 //      Source this machine was never told where to find is the state this ordering rules out.
-//   4. **Run the import commands** — `importSequence` from the model decides which ones and with
+//   4. **Run the import commands** — `importCommands` from the model decides which ones and with
 //      what values (T041) — inside one transaction, so the whole import is one undo step and a
 //      refusal anywhere in it leaves the Project exactly as it was.
 //   5. **Mark the Source Linked.** Last, because until the commands ran it was not in the Project.
@@ -21,9 +21,10 @@
 // generates its own (contracts/model-api.md).
 
 import type { SourceAttachedEvent } from "@cutroom/engine/protocol"
-import { importSequence, type Source } from "@cutroom/model"
+import { importCommands, type Source } from "@cutroom/model"
 
 import { fingerprintOf, type SourceFileHandle } from "@/storage/source-links"
+import { fileProblem, storageProblem, technicalDetail } from "@/ui/failure-wording"
 
 import type { EditorState } from "./index"
 import type { SourceStatusTracker } from "./source-status"
@@ -38,13 +39,40 @@ export interface ImportDependencies {
   readonly now: () => string
 }
 
-/** How an import ended. A refusal is an answer for the user, not an exception. */
+/**
+ * How an import ended. A refusal is an answer for the user, not an exception.
+ *
+ *   * `refused` — this file cannot be used, and `reason` says why in words about the file.
+ *   * `failed` — nothing is known to be wrong with the file: Cutroom could not get as far as asking
+ *     (the engine has stopped). Shown differently, because "cannot be used" would blame the file.
+ *
+ * `detail` is the platform's or the model's own words, for "Details", when they are not already
+ * the reason.
+ */
 export type ImportOutcome =
   | { readonly status: "imported"; readonly source: Source }
-  | { readonly status: "refused"; readonly name: string; readonly reason: string }
+  | {
+      readonly status: "refused" | "failed"
+      readonly name: string
+      readonly reason: string
+      readonly detail?: string
+    }
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/** The engine is gone. Its rejection says nothing about the file. */
+function engineStopped(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === "EngineFatalError" || error.name === "EngineClosedError")
+  )
+}
+
+/** The model's refusal without the function name it leads with ("importCommands: …"). */
+function withoutCaller(message: string): string {
+  return message.replace(/^([\w-]+: )+/, "")
 }
 
 /** The Source as the Project Document will hold it, from what the engine read. */
@@ -75,7 +103,8 @@ export async function importPickedFile(
     return {
       status: "refused",
       name: handle.name,
-      reason: `It could not be read. ${describe(error)}`,
+      reason: fileProblem(error),
+      detail: technicalDetail(error),
     }
   }
 
@@ -85,6 +114,16 @@ export async function importPickedFile(
     read = await tracker.attach(sourceId, handle, file)
   } catch (error) {
     tracker.release(sourceId)
+    if (engineStopped(error)) {
+      return {
+        status: "failed",
+        name: file.name,
+        reason:
+          "Cutroom's engine has stopped, so the file could not be read. Reload the page, then import it again.",
+        detail: technicalDetail(error),
+      }
+    }
+    // The engine's own reason is already written for a person, naming the file and what is wrong.
     return { status: "refused", name: file.name, reason: describe(error) }
   }
 
@@ -97,7 +136,8 @@ export async function importPickedFile(
     return {
       status: "refused",
       name: file.name,
-      reason: `Cutroom could not remember where this file is, so it would be lost on reload. ${describe(error)}`,
+      reason: `Cutroom could not remember where this file is, so it would be lost on reload. ${storageProblem(error)}`,
+      detail: technicalDetail(error),
     }
   }
 
@@ -109,10 +149,10 @@ export async function importPickedFile(
   }
 
   try {
-    // Synchronous from here to the end of the transaction: the Project the sequence is computed
+    // Synchronous from here to the end of the transaction: the Project the commands are computed
     // from is the one the commands are applied to, with no `await` for another edit to slip into.
     store.getState().transact(`Import ${file.name}`, () => {
-      for (const command of importSequence(store.getState().project, { ...ids, source })) {
+      for (const command of importCommands(store.getState().project, { ...ids, source })) {
         store.getState().run(command)
       }
     })
@@ -121,7 +161,12 @@ export async function importPickedFile(
     // keyed by an id no Project names and is never read; it is left rather than deleted, since
     // the link table has no delete and an orphan row costs nothing.
     tracker.release(sourceId)
-    return { status: "refused", name: file.name, reason: describe(error) }
+    return {
+      status: "refused",
+      name: file.name,
+      reason: `It cannot be placed on the Timeline: ${withoutCaller(describe(error))}.`,
+      detail: technicalDetail(error),
+    }
   }
 
   tracker.markLinked(sourceId)

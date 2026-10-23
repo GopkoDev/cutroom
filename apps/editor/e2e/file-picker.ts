@@ -93,7 +93,8 @@ export type Fixture =
  *   * `"cancel"` — the user closes the dialog (`AbortError`, which the app treats as no answer).
  *
  * A picker call with nothing queued fails with an error naming this helper, which the app shows as
- * an import refusal — a forgotten `queue` is loud, not a hang.
+ * "The file picker could not be opened" with the error under Details — a forgotten `queue` is
+ * loud, not a hang.
  */
 export type PickEntry = Fixture | { fixture: Fixture; as: string } | { existing: string } | "cancel"
 

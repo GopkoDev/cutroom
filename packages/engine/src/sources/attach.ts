@@ -52,7 +52,7 @@ import type { AttachSourceMessage, SourceAttachedEvent, SourceFailedEvent } from
 
 /**
  * One Source the worker can read from: the open `Input`, and the tracks the metadata was read
- * from. What later stages (a `CanvasSink`, audio decode) are built on, so they open the same
+ * from. What later stages (a picture sink, audio decode) are built on, so they open the same
  * tracks this module vetted rather than choosing again.
  */
 export interface AttachedSource {

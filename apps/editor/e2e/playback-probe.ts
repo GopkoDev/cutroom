@@ -45,6 +45,8 @@
 
 import type { Page } from "@playwright/test"
 
+import { timebaseAsNumber, type Timebase } from "@cutroom/model"
+
 import { runsOf, sounded, type Sounded } from "./playback"
 
 export const PROBE_KEY = "__cutroomPlaybackProbe"
@@ -456,20 +458,20 @@ export interface ShownFrame {
 }
 
 /**
- * Pairs each `frame-rendered` of a run with the sound's position on the audio clock. `fps` is the
- * Timeline's rate as Frames per second of context time; `fromFrame` sounds at `anchor`. The last
+ * Pairs each `frame-rendered` of a run with the sound's position on the audio clock, in the
+ * Timeline's `timebase` (context time is seconds); `fromFrame` sounds at `anchor`. The last
  * Frame is held until `endsAt` (the `stopped` post's context time).
  */
 export function pictureAgainstSound(
   rendered: readonly RenderedEvent[],
   {
     anchor,
-    fps,
+    timebase,
     fromFrame,
     endsAt,
-  }: { anchor: number; fps: number; fromFrame: number; endsAt: number }
+  }: { anchor: number; timebase: Timebase; fromFrame: number; endsAt: number }
 ): ShownFrame[] {
-  const at = (t: number) => fromFrame + (t - anchor) * fps
+  const at = (t: number) => fromFrame + (t - anchor) * timebaseAsNumber(timebase)
   const timed = rendered.filter(
     (r): r is RenderedEvent & { contextTime: number } => r.contextTime !== null
   )

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { EngineEvent } from "@cutroom/engine/protocol"
-import { importSequence, projectScene, type Source } from "@cutroom/model"
+import { importCommands, projectScene, type Source } from "@cutroom/model"
 
 import type { ExportOutcome, ExportRequest } from "@/engine-client"
 import { createEditorStore } from "@/store"
@@ -45,7 +45,7 @@ function editorWithProject() {
   })
   store.getState().newProject()
   store.getState().transact("Import", () => {
-    for (const command of importSequence(null, {
+    for (const command of importCommands(null, {
       at: "2026-10-23T10:00:00.000Z",
       source: SOURCE,
       clipId: "clip-1",
@@ -199,7 +199,7 @@ describe("starting", () => {
     void t.controller.start(project, WITH_SOUND)
     // An edit while the export runs: a second Clip lengthens the Timeline.
     t.editor.getState().transact("Import", () => {
-      for (const command of importSequence(t.editor.getState().project, {
+      for (const command of importCommands(t.editor.getState().project, {
         at: "2026-10-23T10:01:00.000Z",
         source: { ...SOURCE, id: "source-2" },
         clipId: "clip-2",
@@ -383,6 +383,7 @@ describe("endings short of done", () => {
     expect(t.status()).toEqual({
       phase: "failed",
       fileName: "Interview.mp4",
+      stage: "running",
       reason: "the destination is no longer writable",
       leftover: "removed",
     })
@@ -425,7 +426,8 @@ describe("endings short of done", () => {
     await settle()
     expect(t.status()).toMatchObject({
       phase: "failed",
-      reason: "The sound could not be mixed. decode error",
+      stage: "mixing",
+      reason: "decode error",
     })
   })
 
@@ -483,7 +485,11 @@ describe("the stream the worker writes to (forwardingWritable)", () => {
       .catch(() => {})
     t.engine.finish({ status: "done", bytes: 7 })
     await settle()
-    expect(t.status()).toMatchObject({ phase: "failed", reason: "disk full" })
+    expect(t.status()).toMatchObject({
+      phase: "failed",
+      stage: "committing",
+      reason: "QuotaExceededError: disk full",
+    })
   })
 
   it("passes an abort on to the file, discarding it", async () => {
@@ -493,6 +499,75 @@ describe("the stream the worker writes to (forwardingWritable)", () => {
     await t.engine.transferred[0].getWriter().abort(new Error("export did not finish"))
     expect(t.destination.writable.abort).toHaveBeenCalled()
     expect(t.destination.writable.close).not.toHaveBeenCalled()
+  })
+})
+
+describe("where a failure happened, for the words the dialog gives it (T093)", () => {
+  it("a save dialog that could not open is `choosing`, and nothing was written", async () => {
+    const t = setup()
+    t.pickDestination.mockRejectedValueOnce(
+      new DOMException("Must be handling a user gesture", "SecurityError")
+    )
+    await t.controller.start(t.editor.getState().project!, SILENT)
+    expect(t.status()).toEqual({
+      phase: "failed",
+      fileName: null,
+      stage: "choosing",
+      reason: "SecurityError: Must be handling a user gesture",
+      leftover: null,
+    })
+    expect(t.engine.engine.startExport).not.toHaveBeenCalled()
+  })
+
+  it("a destination that cannot be opened for writing is `opening`", async () => {
+    const t = setup()
+    t.destination.raw.createWritable.mockRejectedValueOnce(
+      new DOMException("not allowed", "NotAllowedError")
+    )
+    await t.controller.start(t.editor.getState().project!, SILENT)
+    expect(t.status()).toMatchObject({
+      phase: "failed",
+      fileName: "Interview.mp4",
+      stage: "opening",
+      reason: "NotAllowedError: not allowed",
+    })
+    expect(t.engine.engine.startExport).not.toHaveBeenCalled()
+  })
+
+  it("a write the destination refused is named as the cause, not the engine's symptom of it", async () => {
+    const t = setup()
+    t.destination.writable.write.mockRejectedValueOnce(
+      new DOMException("There is not enough space on the disk.", "QuotaExceededError")
+    )
+    void t.controller.start(t.editor.getState().project!, SILENT)
+    await settle()
+    await t.engine.transferred[0]
+      .getWriter()
+      .write({ type: "write", data: new Uint8Array(4), position: 0 })
+      .catch(() => {})
+    t.engine.fail("Cannot close a ERRORED writable stream")
+    await settle()
+    expect(t.status()).toMatchObject({
+      phase: "failed",
+      stage: "running",
+      reason:
+        "QuotaExceededError: There is not enough space on the disk.\n(Cannot close a ERRORED writable stream)",
+    })
+  })
+
+  it("an engine that stopped mid-export is `running`, with its words kept", async () => {
+    const t = setup()
+    t.engine.engine.startExport.mockImplementationOnce(() => {
+      const error = new Error("The Cutroom engine stopped: boom")
+      error.name = "EngineFatalError"
+      return Promise.reject(error)
+    })
+    await t.controller.start(t.editor.getState().project!, SILENT)
+    expect(t.status()).toMatchObject({
+      phase: "failed",
+      stage: "running",
+      reason: "EngineFatalError: The Cutroom engine stopped: boom",
+    })
   })
 })
 

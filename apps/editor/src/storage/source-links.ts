@@ -23,6 +23,8 @@
 
 import type { SourceFingerprint } from "@cutroom/model"
 
+import { technicalDetail } from "@/ui/failure-wording"
+
 import { openCutroomDatabase, SOURCE_LINK_STORE } from "./db"
 
 /**
@@ -96,8 +98,9 @@ export function fingerprintOf(file: File): SourceFingerprint {
   return { size: file.size, lastModified: file.lastModified }
 }
 
+/** The platform's own words, name included (`NotFoundError: …`), for the UI's "Details" (T093). */
 function describe(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason)
+  return technicalDetail(reason)
 }
 
 /**

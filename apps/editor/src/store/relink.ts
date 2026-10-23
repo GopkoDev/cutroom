@@ -23,16 +23,17 @@ import {
   type RelinkOutcome,
   type SourceFileHandle,
 } from "@/storage/source-links"
+import { fileProblem, technicalDetail } from "@/ui/failure-wording"
 
 import type { EditorState } from "./index"
 import type { SourceStatusTracker } from "./source-status"
 
-/** How a re-grant or Relink ended, for the prompt to show. */
-export type RelinkResult = { readonly ok: true } | { readonly ok: false; readonly message: string }
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+/**
+ * How a re-grant or Relink ended, for the prompt to show. `message` is the plain statement;
+ * `detail`, when there is one, is the platform's or the engine's own words, for "Details".
+ */
+export type RelinkResult =
+  { readonly ok: true } | { readonly ok: false; readonly message: string; readonly detail?: string }
 
 export interface RegrantDependencies {
   readonly tracker: Pick<SourceStatusTracker, "handleFor" | "check">
@@ -58,7 +59,11 @@ export async function regrantAccess(
   try {
     permission = await (dependencies.requestAccess ?? requestSourceAccess)(handle)
   } catch (error) {
-    return { ok: false, message: describe(error) }
+    return {
+      ok: false,
+      message: "The browser did not ask for permission. Click Allow access again.",
+      detail: technicalDetail(error),
+    }
   }
   if (permission !== "granted") {
     return { ok: false, message: "Access was not granted, so the Source stays Offline." }
@@ -67,11 +72,11 @@ export async function regrantAccess(
   await dependencies.tracker.check(sourceId)
   const state = dependencies.store.getState()
   if (state.sourceStatus[sourceId] === "linked") return { ok: true }
+  const detail = state.sourceOffline[sourceId]?.detail
   return {
     ok: false,
-    message:
-      state.sourceOffline[sourceId]?.detail ??
-      "Access was granted, but the file is no longer where it was. Find it instead.",
+    message: "Access was granted, but the file is no longer where it was. Find it instead.",
+    ...(detail === undefined ? {} : { detail }),
   }
 }
 
@@ -85,6 +90,15 @@ export interface RelinkDependencies {
     handle: FileSystemFileHandle,
     expected: SourceFingerprint
   ) => Promise<RelinkOutcome>
+}
+
+/**
+ * `relinkSource` hands back the platform's message as a string; the DOMException name it leads
+ * with, when it does, is all `fileProblem` needs.
+ */
+function namedError(detail: string): { name: string } | undefined {
+  const name = /^([A-Z]\w+Error)\b/.exec(detail)?.[1]
+  return name === undefined ? undefined : { name }
 }
 
 /** Words for a size, for a message that has to say two files differ. */
@@ -111,7 +125,11 @@ export async function relinkPickedFile(
   const outcome = await (dependencies.relink ?? relinkSource)(sourceId, handle, source.fingerprint)
   if (!outcome.ok) {
     if (outcome.reason === "unreadable") {
-      return { ok: false, message: `That file could not be read. ${outcome.detail}` }
+      return {
+        ok: false,
+        message: `That file could not be used for ${source.name}. ${fileProblem(namedError(outcome.detail))}`,
+        detail: outcome.detail,
+      }
     }
     return {
       ok: false,
@@ -124,7 +142,11 @@ export async function relinkPickedFile(
   try {
     await tracker.attach(sourceId, handle, outcome.file)
   } catch (error) {
-    return { ok: false, message: `The file matches, but it could not be read. ${describe(error)}` }
+    return {
+      ok: false,
+      message: `The file matches ${source.name}, but it could not be read. Its Clips stay as they are.`,
+      detail: technicalDetail(error),
+    }
   }
 
   // The document's half: the name the file goes by now and the fingerprint the next Relink checks

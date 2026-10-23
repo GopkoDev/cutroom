@@ -82,6 +82,7 @@ import {
   ProjectLoadError,
   type ProjectSaver,
 } from "@/storage/projects"
+import { storageProblem, technicalDetail } from "@/ui/failure-wording"
 
 // `applyCommand` already enables patches in the model's copy of Immer. Repeated here because
 // `applyPatches` is called from *this* module, and the call is documented as idempotent — the cost
@@ -110,6 +111,23 @@ export interface SourceOfflineReason {
   readonly reason: "needs-permission" | "never-linked-here" | "unreachable" | "unreadable"
   /** The platform's or the engine's own words, when there are any. */
   readonly detail?: string
+}
+
+/**
+ * A failure the store holds for the screen to show (T093): the plain statement, what it means, and
+ * the platform's own words for "Details". Plain data, so it can sit in the store.
+ */
+export interface FailureReport {
+  readonly title: string
+  readonly explanation: string
+  readonly detail?: string
+}
+
+/** What the engine said when it stopped (`fatal`), for the shell to show in the Preview's place. */
+export interface EngineFatalReport {
+  readonly reason: string
+  /** The worker's stack, when it sent one. */
+  readonly stack?: string
 }
 
 /**
@@ -189,9 +207,14 @@ export interface EditorState {
   /** For each Offline Source, why. A Linked Source has no entry. */
   readonly sourceOffline: Readonly<Record<string, SourceOfflineReason>>
   /** What the engine said when it gave up, for the shell to show instead of a frozen Preview. */
-  readonly engineFatal: string | null
+  readonly engineFatal: EngineFatalReport | null
   /** Why the last attempt to open a Project from the list failed, in words for the user. */
-  readonly openFailure: string | null
+  readonly openFailure: FailureReport | null
+  /**
+   * Why the last write of the Project failed, or `null` once a write has succeeded since. While it
+   * is set, the Project in this tab is newer than the one in storage, and the editor says so.
+   */
+  readonly saveFailure: FailureReport | null
 
   // -------------------------------------------------------------------------------- the actions
   /** Applies one command. On its own it is one undo step; inside a gesture it joins that step. */
@@ -210,12 +233,24 @@ export interface EditorState {
    * for an Offline Source and dropped for a Linked one.
    */
   markSource(sourceId: string, status: SourceStatus, why?: SourceOfflineReason): void
-  reportEngineFatal(reason: string): void
+  reportEngineFatal(reason: string, stack?: string): void
+  /** The saver's report of a write that failed. Not undoable; cleared by the next one that lands. */
+  reportSaveFailure(error: unknown): void
+  /** The saver's report of a write that landed. */
+  reportSaved(): void
+  /** Writes the Project again now, for the "Try again" beside a save failure. */
+  retrySave(): Promise<void>
+  /** Writes whatever is outstanding and resolves when storage is quiet. */
+  flushSaves(): Promise<void>
 
   /** Opens the editor with no Project yet. The first import brings one into being (T041). */
   newProject(): void
-  openProject(id: string): Promise<void>
-  /** Leaves the editor for the Project list, writing anything outstanding first. */
+  /** `name` is what the list showed, so a failure can say which Project it was. */
+  openProject(id: string, name?: string): Promise<void>
+  /**
+   * Leaves the editor for the Project list, writing anything outstanding first. Stays in the editor
+   * if that write fails: leaving would throw away the only copy of the edits storage refused.
+   */
   closeProject(): Promise<void>
 }
 
@@ -244,10 +279,6 @@ function projected(
   const scene = project === null ? null : projectScene(project)
   if (scene === heldScene) return { scene: heldScene, sceneRevision: heldRevision }
   return { scene, sceneRevision: heldRevision + 1 }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -430,12 +461,19 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       writeNow()
     }
 
-    async function openProject(id: string): Promise<void> {
+    async function openProject(id: string, name?: string): Promise<void> {
       set({ openFailure: null })
+      const which = name === undefined ? "That Project" : name
       try {
         const project = await loadProject(id)
         if (project === undefined) {
-          set({ openFailure: "That Project is no longer in this browser's storage." })
+          set({
+            openFailure: {
+              title: `${which} is no longer in this browser's storage.`,
+              explanation:
+                "It may have been deleted in another tab, or this browser's data for Cutroom was cleared.",
+            },
+          })
           return
         }
 
@@ -453,8 +491,17 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
         set({
           openFailure:
             error instanceof ProjectLoadError
-              ? error.message
-              : `That Project could not be opened. ${describe(error)}`,
+              ? {
+                  title: `${which} could not be opened.`,
+                  explanation:
+                    "What is saved for it is damaged, or was written in a way this version of Cutroom does not understand. It has been left exactly as it is.",
+                  detail: technicalDetail(error),
+                }
+              : {
+                  title: `${which} could not be opened.`,
+                  explanation: `${storageProblem(error)} Try again.`,
+                  detail: technicalDetail(error),
+                },
         })
       }
     }
@@ -464,6 +511,7 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       sceneRevision: 0,
       screen: "projects",
       openFailure: null,
+      saveFailure: null,
 
       run,
       transact,
@@ -489,8 +537,33 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
         })
       },
 
-      reportEngineFatal(reason) {
-        set({ engineFatal: reason })
+      reportEngineFatal(reason, stack) {
+        if (get().engineFatal !== null) return // the first `fatal` is the one that explains
+        set({ engineFatal: stack === undefined ? { reason } : { reason, stack } })
+      },
+
+      reportSaveFailure(error) {
+        set({
+          saveFailure: {
+            title: "Your latest changes could not be saved.",
+            explanation: storageProblem(error),
+            detail: technicalDetail(error),
+          },
+        })
+      },
+
+      reportSaved() {
+        if (get().saveFailure !== null) set({ saveFailure: null })
+      },
+
+      async retrySave() {
+        const project = get().project
+        if (project !== null) saver.save(project)
+        await saver.flush()
+      },
+
+      flushSaves() {
+        return saver.flush()
       },
 
       newProject() {
@@ -505,6 +578,7 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
 
       async closeProject() {
         await saver.flush()
+        if (get().saveFailure !== null) return
         set({ ...NO_PROJECT, screen: "projects" })
       },
     }
@@ -513,7 +587,18 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
 
 export type EditorStore = ReturnType<typeof createEditorStore>
 
-const saver = createProjectSaver()
+// The saver reports into the store it feeds, so a write that fails is on screen rather than only
+// in the console (T093). The store does not exist yet when the saver is made; both callbacks run
+// long after it does.
+const saver = createProjectSaver({
+  onFailure: (error, project) => {
+    console.error(`Cutroom could not save the Project ${project.id}`, error)
+    useEditorStore.getState().reportSaveFailure(error)
+  },
+  onSaved: () => {
+    useEditorStore.getState().reportSaved()
+  },
+})
 
 /** The application's store. */
 export const useEditorStore = createEditorStore({ saver, loadProject })

@@ -18,8 +18,8 @@
 //
 // **Time is the model's.** A Frame's timestamp and duration are `frameToSeconds` of its index in
 // the export and of one Frame; a chunk of sound's timestamp is its sample index as ticks of the
-// sample rate (`ticksToSeconds`); the track's frame rate is `framesPerSecond`. Nothing here divides
-// by a rate (R7, Principle II).
+// sample rate (`ticksToSeconds`); the track's `frameRate` metadata is `timebaseAsNumber`. Nothing
+// here divides by a rate (R7, Principle II).
 //
 // **Backpressure everywhere** (R4, invariant 4). Every `add()` is awaited, and a chunk of sound is
 // acknowledged (`export-audio-ack`) only once the encoder has taken it, so neither the Frame loop
@@ -54,9 +54,9 @@ import {
 import {
   frameToSampleIndex,
   frameToSeconds,
-  framesPerSecond,
   sourceTimeToTicks,
   ticksToSeconds,
+  timebaseAsNumber,
   type Scene,
 } from "@cutroom/model"
 
@@ -253,12 +253,16 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
   /** Why the export is stopping, if it is: the first reason wins. */
   let halted: unknown = null
   let finished = false
-  let rejectHalt: (reason: unknown) => void = () => undefined
-  /** Rejects the moment the export is halted, so a wait on anything at all can be cut short. */
-  const haltSignal = new Promise<never>((_, reject) => {
-    rejectHalt = reject
-  })
-  haltSignal.catch(() => undefined)
+  /**
+   * The waits in progress, each cut short the moment the export is halted.
+   *
+   * Not `Promise.race([work, haltSignal])` over one long-lived signal: every race leaves a reaction
+   * on the signal, and the signal stays pending for the whole export, so a race per wait — two per
+   * Frame — kept every one of them alive until the export ended (measured: ~25 000 `Promise`s and
+   * their closures per 12 800 Frames, ~5 MB of worker heap over a ten-minute export, all freed only
+   * at its end). Each wait here takes itself out of the set once it settles (T090).
+   */
+  const waits = new Set<(reason: unknown) => void>()
 
   function halt(reason: unknown): void {
     if (halted !== null || finished) return
@@ -266,12 +270,21 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
     // First, before anything else can happen: the file is gone, so no later step — a close from a
     // cancelled Output, a slow encoder flushing — can commit it.
     void destination.discard()
-    rejectHalt(reason)
+    for (const cut of waits) cut(reason)
+    waits.clear()
   }
 
   /** Awaits `work`, unless the export is halted first. */
   function unlessHalted<T>(work: Promise<T>): Promise<T> {
-    return Promise.race([work, haltSignal])
+    if (halted !== null) {
+      // Still observed, so a rejection of `work` is never an unhandled one.
+      work.catch(() => undefined)
+      return Promise.reject(halted)
+    }
+    return new Promise<T>((resolve, reject) => {
+      waits.add(reject)
+      work.then(resolve, reject).finally(() => waits.delete(reject))
+    })
   }
 
   // -- The pipeline, built once ------------------------------------------------------------------
@@ -338,11 +351,12 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
         sampleRate: audioSettings.sampleRate,
         timestamp: decoderSeconds(ticksToSeconds(audioSettings.sampleRate, startSample)),
       })
-      try {
-        await unlessHalted(audio.add(sample))
-      } finally {
-        sample.close()
-      }
+      // Closed when the encoder is done with it, not when the wait for it is cut short: a halt
+      // stops the waiting, and Mediabunny may still be reading the sample.
+      const adding = audio.add(sample).finally(() => sample.close())
+      encoding.add(adding)
+      void adding.catch(() => undefined).finally(() => encoding.delete(adding))
+      await unlessHalted(adding)
     }
     nextSample = startSample + length
 
@@ -414,7 +428,7 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
       if (!covers(clip, frame)) continue
       if ((getAttachedSource(clip.sourceId)?.video ?? null) !== tracks.get(clip.sourceId)) {
         throw new Error(
-          `the media of Clip ${clip.clipId} went offline or was relinked during the export, ` +
+          `the Source of Clip ${clip.clipId} went Offline or was relinked during the export, ` +
             "so the file would not match the Timeline as it was when the export started"
         )
       }
@@ -425,10 +439,29 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
 
   const sinks = createSinkSet()
   /** What has been built so far, for the tidying up after the export has ended however it did. */
-  const held: { renderer: SceneRenderer | null; output: Output | null } = {
+  const held: { renderer: Promise<SceneRenderer> | null; output: Output | null } = {
     renderer: null,
     output: null,
   }
+
+  /**
+   * The Frame being rendered, if one is. A halt stops *waiting* for it, not the Render itself, so
+   * the tidying up below waits for it to settle first: dropping the sinks and destroying the
+   * renderer under a Render still in flight would let it build a sink, open a stream and start a
+   * decoder after the last `retainSinks` — a `VideoDecoder` and its queued frames nobody closes.
+   */
+  let rendering: Promise<void> = Promise.resolve()
+
+  /**
+   * Every `add()` handed to an encoder and not yet settled. The tidy-up waits for these before
+   * cancelling the Output, because of a race in Mediabunny 1.52: a source's encoder is created
+   * lazily inside its first `add()`, and `Output.cancel()` does not wait for that — cancelled while
+   * the first `add()` is still configuring, it closes nothing, and the `VideoEncoder` created a
+   * moment later is never closed. An open encoder is a GC root, so it held the whole export —
+   * `Output`, muxer, renderer and canvas — alive after every export cancelled at once (measured:
+   * one more `VideoEncoder`, `Output` and `WebGLRenderer` for about every second such cancel).
+   */
+  const encoding = new Set<Promise<unknown>>()
 
   /** Samples the encoder puts before the first one it is given (encoder-delay.ts). */
   let encoderDelay = 0
@@ -479,8 +512,10 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
     }
 
     const canvas = new OffscreenCanvas(scene.frameSize.width, scene.frameSize.height)
-    const renderer = await unlessHalted(createSceneRenderer(canvas, scene.frameSize))
-    held.renderer = renderer
+    // Held as the promise, so a halt while the renderer is still being created destroys it once it
+    // exists rather than leaving its WebGL context behind.
+    held.renderer = createSceneRenderer(canvas, scene.frameSize)
+    const renderer = await unlessHalted(held.renderer)
 
     if (audioSettings !== null) {
       encoderDelay = await unlessHalted(measureEncoderDelay(audioSettings))
@@ -501,7 +536,7 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
       codec: message.video.codec,
       quality: new Quality({ bitrate: message.video.bitrate }),
     })
-    output.addVideoTrack(video, { frameRate: framesPerSecond(scene.timebase) })
+    output.addVideoTrack(video, { frameRate: timebaseAsNumber(scene.timebase) })
 
     let audio: AudioSampleSource | null = null
     if (audioSettings !== null) {
@@ -522,7 +557,8 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
     let reportedAt = performance.now()
     for (let frame = fromFrame; frame < toFrame; frame++) {
       checkSources(frame)
-      await unlessHalted(renderByStreaming(sinks, built.renderer, scene, frame))
+      rendering = renderByStreaming(sinks, built.renderer, scene, frame)
+      await unlessHalted(rendering)
       // Checked again after the Render: a detach during it renders the Clip empty, and that
       // picture must not reach the file.
       checkSources(frame)
@@ -530,9 +566,13 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
       // Captured from the canvas synchronously, inside the same task as the Render — before the
       // canvas can be presented and its drawing buffer cleared. The promise is the backpressure.
       const index = frame - fromFrame
-      await unlessHalted(
-        built.video.add(frameToSeconds(scene.timebase, index), frameToSeconds(scene.timebase, 1))
+      const adding = built.video.add(
+        frameToSeconds(scene.timebase, index),
+        frameToSeconds(scene.timebase, 1)
       )
+      encoding.add(adding)
+      void adding.catch(() => undefined).finally(() => encoding.delete(adding))
+      await unlessHalted(adding)
 
       const now = performance.now()
       if (index + 1 === framesTotal || now - reportedAt >= PROGRESS_INTERVAL_MS) {
@@ -574,11 +614,14 @@ export function startExport(message: ExportStartMessage, report: ExportReport): 
       // After the answer, not before: cancelling within two seconds (SC-009) is about the user's
       // file and the user's machine, and this is only about our memory.
       sourceSound?.stop()
-      const { output, renderer } = held
+      const { output } = held
       if (output !== null && output.state !== "finalized") {
+        await Promise.allSettled(encoding)
         await output.cancel().catch(() => undefined)
       }
+      await rendering.catch(() => undefined)
       sinks.retainSinks(new Set())
+      const renderer = await held.renderer?.catch(() => null)
       renderer?.destroy()
     }
   })()

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { applyCommand, importSequence, type Project, type Source } from "@cutroom/model"
+import { applyCommand, importCommands, type Project, type Source } from "@cutroom/model"
 
 import {
   avcCodecString,
@@ -58,7 +58,7 @@ function source(id: string, hasAudio: boolean): Source {
 function projectWith(...sources: Source[]): Project {
   let project: Project | null = null
   for (const [index, each] of sources.entries()) {
-    for (const command of importSequence(project, {
+    for (const command of importCommands(project, {
       at: "2026-10-23T10:00:00.000Z",
       source: each,
       clipId: `clip-${index}`,

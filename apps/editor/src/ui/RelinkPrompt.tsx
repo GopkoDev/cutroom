@@ -25,9 +25,14 @@ import { useEditorStore, type SourceOfflineReason } from "@/store"
 import { regrantAccess, relinkPickedFile, type RelinkResult } from "@/store/relink"
 import type { SourceStatusTracker } from "@/store/source-status"
 
+import { technicalDetail } from "./failure-wording"
 import { pickOneFile } from "./file-picker"
+import { Notice } from "./Notice"
 
-/** Why it is Offline, as the user reads it. */
+/**
+ * Why it is Offline, as the user reads it. The platform's or the engine's own words, when there
+ * are any, are shown under "Details" rather than here (T093).
+ */
 function explain(why: SourceOfflineReason | undefined): string {
   switch (why?.reason) {
     case "needs-permission":
@@ -35,17 +40,15 @@ function explain(why: SourceOfflineReason | undefined): string {
     case "never-linked-here":
       return "This browser has never been told where the file is."
     case "unreachable":
-      return `The file is no longer where it was${why.detail === undefined ? "." : ` — ${why.detail}.`}`
+      return "The file is no longer where it was."
     case "unreadable":
-      return `The file could not be read${why.detail === undefined ? "." : ` — ${why.detail}.`}`
+      return "The file is there, but it could not be read as this Source."
     default:
       return "The file cannot be reached."
   }
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+type Failure = { readonly message: string; readonly detail?: string }
 
 function OfflineSource({
   source,
@@ -57,22 +60,26 @@ function OfflineSource({
   tracker: SourceStatusTracker
 }) {
   const [busy, setBusy] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const [failure, setFailure] = useState<Failure | null>(null)
 
-  async function settle(result: Promise<RelinkResult>) {
+  async function settle(result: Promise<RelinkResult>, failedToStart: string) {
     setBusy(true)
     setFailure(null)
-    const answer = await result.catch((error: unknown) => ({
+    const answer: RelinkResult = await result.catch((error: unknown) => ({
       ok: false as const,
-      message: describe(error),
+      message: failedToStart,
+      detail: technicalDetail(error),
     }))
     setBusy(false)
-    if (!answer.ok) setFailure(answer.message)
+    if (!answer.ok) setFailure({ message: answer.message, detail: answer.detail })
   }
 
   function onAllow() {
     // `regrantAccess` takes the handle synchronously and requests permission before any await.
-    void settle(regrantAccess(source.id, { tracker, store: useEditorStore }))
+    void settle(
+      regrantAccess(source.id, { tracker, store: useEditorStore }),
+      "The browser did not ask for permission. Click Allow access again."
+    )
   }
 
   function onFind() {
@@ -86,7 +93,8 @@ function OfflineSource({
           tracker,
           now: () => new Date().toISOString(),
         })
-      })
+      }),
+      "The file picker could not be opened. Click Find the file… again."
     )
   }
 
@@ -120,10 +128,16 @@ function OfflineSource({
           Find the file…
         </Button>
       </div>
+      {why?.detail === undefined ? null : (
+        <details data-testid="relink-source-details" className="opacity-80">
+          <summary className="cursor-pointer select-none">Details</summary>
+          <pre className="mt-1 font-mono text-[0.625rem] break-words whitespace-pre-wrap">
+            {why.detail}
+          </pre>
+        </details>
+      )}
       {failure === null ? null : (
-        <p data-testid="relink-failure" role="alert" className="text-destructive">
-          {failure}
-        </p>
+        <Notice testId="relink-failure" title={failure.message} details={failure.detail} />
       )}
     </li>
   )

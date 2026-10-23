@@ -54,7 +54,7 @@ export interface SceneRenderer {
    * Composites one Frame of a Scene onto the canvas, replacing whatever was there.
    *
    * `pictures` are the decoded pictures of the SceneClips that cover this Frame and have one, in
-   * the Scene's back-to-front order; whoever decoded them (playback/scrub.ts) has already decided
+   * the Scene's back-to-front order; whoever decoded them (playback/stream.ts) has already decided
    * which Clips those are. A Clip with no picture here is not drawn, and nothing else is either —
    * so a Frame no Clip covers composites to the empty stage, black, rather than to whatever the
    * last Frame showed (FR-008, T047).

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { SourceAttachedEvent } from "@cutroom/engine/protocol"
-import { importSequence, type Source } from "@cutroom/model"
+import { importCommands, type Source } from "@cutroom/model"
 
 import type { SourceFileHandle, SourceFileResult } from "@/storage/source-links"
 
@@ -52,7 +52,7 @@ function projectStore() {
   })
   store.getState().newProject()
   store.getState().transact("Import", () => {
-    for (const command of importSequence(null, {
+    for (const command of importCommands(null, {
       at: "2026-10-22T10:00:00.000Z",
       source: SOURCE,
       clipId: "clip-1",
@@ -297,5 +297,32 @@ describe("which Source a file belongs to (the export's guard)", () => {
     const throwing = setup([{ status: "linked", handle: broken, file: fileOf() }])
     await throwing.tracker.checkAll()
     expect(await throwing.tracker.sourceAt(entry("x.mp4", () => []))).toBeUndefined()
+  })
+})
+
+describe("a check that fails is not silent (T093)", () => {
+  it("lands a Source with no status yet Offline, saying the look-up failed, so it is not 'Checking…' for ever", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { store, tracker, readSourceFile } = setup([linked()])
+    readSourceFile.mockRejectedValueOnce(new DOMException("Database closed", "InvalidStateError"))
+
+    await tracker.checkAll()
+
+    expect(store.getState().sourceStatus[SOURCE.id]).toBe("offline")
+    expect(store.getState().sourceOffline[SOURCE.id]).toEqual({
+      reason: "unreachable",
+      detail: "Cutroom could not look up where its file is: InvalidStateError: Database closed",
+    })
+  })
+
+  it("leaves a Source that already has a status as it is", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined)
+    const { store, tracker, readSourceFile } = setup([linked()])
+    await tracker.checkAll()
+    expect(store.getState().sourceStatus[SOURCE.id]).toBe("linked")
+
+    readSourceFile.mockRejectedValueOnce(new Error("storage hiccup"))
+    await tracker.checkAll()
+    expect(store.getState().sourceStatus[SOURCE.id]).toBe("linked")
   })
 })

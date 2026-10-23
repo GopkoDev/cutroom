@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { timebaseAsNumber, type Timebase } from "@cutroom/model"
+
 import { counterText, readCounter } from "./burned-in-counter"
 import { installFilePicker } from "./file-picker"
 import { importFixture, newProject, parkAt, play, settledFrame } from "./playback"
@@ -48,9 +50,10 @@ import {
 
 const FIXTURE = "sync-1080p30-10min.mp4"
 const FRAMES = 18_000
-const FPS = 30
-const SECONDS = FRAMES / FPS
-const MINUTE = 60 * FPS
+/** The fixture's Timebase (scripts/make-fixtures.ts). */
+const TIMEBASE: Timebase = { numerator: 30, denominator: 1 }
+const SECONDS = FRAMES / timebaseAsNumber(TIMEBASE)
+const MINUTE = 60 * timebaseAsNumber(TIMEBASE)
 
 test(
   "picture and sound stay within one Frame for ten minutes of continuous playback",
@@ -81,10 +84,10 @@ test(
     if (playedAt === null || stoppedAt === null) {
       throw new Error("the run's transport posts carry no audio clock reading")
     }
-    const position = (t: number) => (t - sound.anchor) * FPS
+    const position = (t: number) => (t - sound.anchor) * timebaseAsNumber(TIMEBASE)
     const shown = pictureAgainstSound(run.rendered, {
       anchor: sound.anchor,
-      fps: FPS,
+      timebase: TIMEBASE,
       fromFrame: 0,
       endsAt: stoppedAt,
     })

@@ -7,7 +7,7 @@ import { installFilePicker } from "./file-picker"
 import { importFixture, newProject } from "./playback"
 
 // SC-005: one minute of 1080p 30 fps material exports in under two minutes on the reference
-// machine (quickstart.md: MacBook Air, Apple M4, Chrome 150) — T089.
+// machine (quickstart.md: MacBook Air, Apple M4, the Chrome it names) — T089.
 //
 // The export covers the whole Timeline (there is no range to choose), so the Timeline is built to
 // be exactly one minute: `sync-1080p30.mp4` (30 s, 1080p30, with sound) imported twice, as two
@@ -34,7 +34,7 @@ const LIMIT_MS = 120_000
 const MEDIA_SECONDS = 60
 const EXPORTED = "export-throughput.mp4"
 
-test("one minute of 1080p30 exports in under two minutes (SC-005)", async ({ page }) => {
+test("one minute of 1080p30 exports in under two minutes (SC-005)", async ({ page, browser }) => {
   test.setTimeout(LIMIT_MS + 120_000)
   const picker = await installFilePicker(page)
   await newProject(page)
@@ -97,8 +97,9 @@ test("one minute of 1080p30 exports in under two minutes (SC-005)", async ({ pag
   expect({ width: track.width, height: track.height }).toEqual({ width: 1920, height: 1080 })
   expect(track.hasAudio).toBe(true)
 
-  const userAgent = await page.evaluate(() => navigator.userAgent)
-  const chrome = /Chrome\/([\d.]+)/.exec(userAgent)?.[1] ?? "unknown"
+  // The browser's own version, not `navigator.userAgent`: the `Desktop Chrome` device descriptor
+  // replaces the user agent with a fixed string, whose Chrome version is not the one running.
+  const chrome = browser.version()
   test.info().annotations.push(
     {
       type: "export wall-clock",

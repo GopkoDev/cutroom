@@ -10,7 +10,7 @@ import { createEditorStore } from "./index"
 // The import's promises are about order: nothing reaches the Project until the engine has read the
 // file and the handle is remembered, a refusal leaves the Project exactly as it was, and the whole
 // import is one undo step. The engine and the link table are stand-ins; the store and the model's
-// `importSequence` are real.
+// `importCommands` are real.
 
 const ATTACHED: SourceAttachedEvent = {
   type: "source-attached",
@@ -158,5 +158,56 @@ describe("importPickedFile", () => {
     expect(project?.timebase).toEqual({ numerator: 30000, denominator: 1001 })
     expect(project?.timeline.tracks[0]?.clips.map((clip) => clip.startFrame)).toEqual([0, 300])
     expect(store.getState().past).toHaveLength(2)
+  })
+
+  describe("says what happened in words, with the platform's kept for Details (T093)", () => {
+    it("a file the browser will not let Cutroom read", async () => {
+      const { dependencies } = setup()
+      const denied = new DOMException("The request is not allowed.", "NotAllowedError")
+      const outcome = await importPickedFile(handleOf(denied), dependencies)
+      expect(outcome).toEqual({
+        status: "refused",
+        name: "gone.mp4",
+        reason: "The browser did not give Cutroom permission to read it.",
+        detail: "NotAllowedError: The request is not allowed.",
+      })
+    })
+
+    it("an engine that has stopped is not blamed on the file", async () => {
+      const { store, tracker, dependencies } = setup()
+      const stopped = new Error("The Cutroom engine stopped: the GPU context was lost")
+      stopped.name = "EngineFatalError"
+      tracker.attach.mockRejectedValue(stopped)
+
+      const outcome = await importPickedFile(handleOf(FILE), dependencies)
+
+      expect(outcome.status).toBe("failed")
+      if (outcome.status !== "failed") return
+      expect(outcome.reason).toMatch(/engine has stopped.*Reload the page/)
+      expect(outcome.detail).toMatch(/GPU context was lost/)
+      expect(store.getState().project).toBeNull()
+    })
+
+    it("a model refusal loses the function name it leads with", async () => {
+      const { tracker, dependencies } = setup()
+      tracker.attach.mockResolvedValue({ ...ATTACHED, duration: { numerator: 0, denominator: 1 } })
+      const outcome = await importPickedFile(handleOf(FILE), dependencies)
+      expect(outcome.status).toBe("refused")
+      if (outcome.status !== "refused") return
+      expect(outcome.reason).toBe(
+        'It cannot be placed on the Timeline: "interview.mp4" is too short to cover a single Frame.'
+      )
+      expect(outcome.detail).toMatch(/^CommandError: importCommands:/)
+    })
+
+    it("storage that will not take the link says so, without the exception's name up front", async () => {
+      const { putSourceLink, dependencies } = setup()
+      putSourceLink.mockRejectedValue(new DOMException("quota", "QuotaExceededError"))
+      const outcome = await importPickedFile(handleOf(FILE), dependencies)
+      expect(outcome.status).toBe("refused")
+      if (outcome.status !== "refused") return
+      expect(outcome.reason).toMatch(/lost on reload\. This browser has run out of space/)
+      expect(outcome.detail).toBe("QuotaExceededError: quota")
+    })
   })
 })

@@ -49,6 +49,7 @@ import {
   type SourceFileHandle,
   type SourceFileResult,
 } from "@/storage/source-links"
+import { technicalDetail } from "@/ui/failure-wording"
 
 import type { EditorState, SourceOfflineReason, SourceStatus } from "./index"
 
@@ -152,13 +153,23 @@ export function createSourceStatusTracker(options: SourceStatusOptions): SourceS
   }
 
   /**
-   * A check that throws — storage failing, a browser that cannot query permission — has no status
-   * to write, and nobody awaiting it who could do better. Reported, so it is not silent.
+   * A check that throws — storage failing, a browser that cannot query permission — has no verdict
+   * about the file, and nobody awaiting it who could do better. Reported to the console, and, for a
+   * Source that has no status yet, to the screen as well: left alone it would say "Checking…" for
+   * ever, which is a silent failure (T093). It goes Offline with what happened, so the prompt offers
+   * "Find the file…". A Source that already has a status keeps it — one failed look-up is no reason
+   * to empty a Preview that is showing a file the engine can still read.
    */
   function report(sourceId: string): (error: unknown) => void {
     return (error) => {
-      if (!disposed)
-        console.error(`Checking whether the Source ${sourceId} can be read failed`, error)
+      if (disposed) return
+      console.error(`Checking whether the Source ${sourceId} can be read failed`, error)
+      if (store.getState().sourceStatus[sourceId] === undefined) {
+        goOffline(sourceId, {
+          reason: "unreachable",
+          detail: `Cutroom could not look up where its file is: ${technicalDetail(error)}`,
+        })
+      }
     }
   }
 

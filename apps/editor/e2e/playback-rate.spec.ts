@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test"
 
+import { timebaseAsNumber, type Timebase } from "@cutroom/model"
+
 import { installFilePicker } from "./file-picker"
 import { importFixture, newProject, parkAt, play, settledFrame } from "./playback"
 import {
@@ -45,9 +47,10 @@ import {
 
 const FIXTURE = "sync-1080p30-10min.mp4"
 const FRAMES = 18_000
-const FPS = 30
-const SECONDS = FRAMES / FPS
-const MINUTE = 60 * FPS
+/** The fixture's Timebase (scripts/make-fixtures.ts). */
+const TIMEBASE: Timebase = { numerator: 30, denominator: 1 }
+const SECONDS = FRAMES / timebaseAsNumber(TIMEBASE)
+const MINUTE = 60 * timebaseAsNumber(TIMEBASE)
 const MINUTES = FRAMES / MINUTE
 
 /** At most this many Frames skipped in any one minute. */
@@ -83,7 +86,7 @@ test(
     if (stoppedAt === null) throw new Error("the stop carries no audio clock reading")
     const shown = pictureAgainstSound(run.rendered, {
       anchor: sound.anchor,
-      fps: FPS,
+      timebase: TIMEBASE,
       fromFrame: 0,
       endsAt: stoppedAt,
     })
@@ -95,7 +98,8 @@ test(
     const minuteOf = (frame: number) => Math.floor(frame / MINUTE)
     const droppedByMinute = new Array<number>(MINUTES).fill(0)
     for (const d of run.dropped) {
-      const at = d.contextTime === null ? 0 : (d.contextTime - sound.anchor) * FPS
+      const at =
+        d.contextTime === null ? 0 : (d.contextTime - sound.anchor) * timebaseAsNumber(TIMEBASE)
       droppedByMinute[Math.min(MINUTES - 1, Math.max(0, minuteOf(at)))]! += d.count
     }
 

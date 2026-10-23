@@ -26,6 +26,7 @@ import { startExport, type ExportRun } from "./export/run"
 import { createScheduler, type Scheduler } from "./playback/scheduler"
 import { createAudioPlayback } from "./sources/audio"
 import { attachSource, releaseSource } from "./sources/attach"
+import { previewSinks } from "./sources/canvas-sink"
 import type {
   EngineEvent,
   ExportAudioChunkMessage,
@@ -187,10 +188,10 @@ function replaceScene(message: SceneMessage): void {
  * of startup, not a fault — `frames-dropped` is the protocol's own channel for saying so, and it
  * is explicitly diagnostic and never surfaced as an error.
  *
- * Everything past that check is playback/scheduler.ts: a `scrub` is rendered by random access, a
- * `clock` Frame during playback from the Clips' streams, and a request that arrives while a
- * Render is in flight waits behind it, displacing — and reporting as dropped — any older request
- * already waiting (FR-012).
+ * Everything past that check is playback/scheduler.ts: every Frame, `scrub` or `clock`, is
+ * rendered from the Clips' streams, walked forward from where each decoder stands when that is
+ * cheaper than seeking (ADR 0017), and a request that arrives while a Render is in flight waits
+ * behind it, displacing — and reporting as dropped — any older request already waiting (FR-012).
  *
  * A `clock` Frame is also the Playhead moving, which is what lets sound be decoded further ahead.
  * It is passed on before the Frame is rendered, not after: sound must never wait for picture.
@@ -310,8 +311,10 @@ async function handle(message: ToEngine): Promise<void> {
 
     case "detach-source":
       // No reply: the protocol has none, and a Source that was never attached is already detached.
-      // Its Clips render empty from the next Frame, because every sink re-reads the attachment.
+      // Its Clips render empty from the next Frame, because every sink re-reads the attachment;
+      // the Preview's decoders parked on it are closed now rather than at that Frame.
       releaseSource(message.sourceId)
+      previewSinks.forgetSource(message.sourceId)
       return
 
     case "transport":

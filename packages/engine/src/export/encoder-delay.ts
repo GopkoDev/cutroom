@@ -61,24 +61,31 @@ export async function measureEncoderDelay(settings: SoundSettings): Promise<numb
   const output = new Output({ format: new Mp4OutputFormat(), target })
   const source = soundSource(settings)
   output.addAudioTrack(source)
-  await output.start()
-
-  const planar = new Float32Array(PROBE_SAMPLES * channels)
-  for (let channel = 0; channel < channels; channel++) planar[channel * PROBE_SAMPLES] = IMPULSE
-  const impulse = new AudioSample({
-    data: planar,
-    format: "f32-planar",
-    numberOfChannels: channels,
-    sampleRate,
-    timestamp: 0,
-  })
   try {
-    await source.add(impulse)
-  } finally {
-    impulse.close()
+    await output.start()
+
+    const planar = new Float32Array(PROBE_SAMPLES * channels)
+    for (let channel = 0; channel < channels; channel++) planar[channel * PROBE_SAMPLES] = IMPULSE
+    const impulse = new AudioSample({
+      data: planar,
+      format: "f32-planar",
+      numberOfChannels: channels,
+      sampleRate,
+      timestamp: 0,
+    })
+    try {
+      await source.add(impulse)
+    } finally {
+      impulse.close()
+    }
+    source.close()
+    await output.finalize()
+  } catch (error) {
+    // An encoder that refused the impulse is still open: only `finalize` or `cancel` closes it, and
+    // nothing else holds this Output to call either (T090).
+    if (output.state !== "finalized") await output.cancel().catch(() => undefined)
+    throw error
   }
-  source.close()
-  await output.finalize()
   if (target.buffer === null) throw new Error("measuring the encoder's delay produced no file")
 
   const input = new Input({ formats: ALL_FORMATS, source: new BufferSource(target.buffer) })

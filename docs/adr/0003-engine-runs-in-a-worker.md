@@ -10,3 +10,4 @@ What crosses the boundary is a snapshot, not a command stream: the main thread s
 
 - Everything the engine needs must survive `postMessage`; the message protocol is a real interface that has to be designed, not an implementation detail.
 - Debugging spans two threads, and errors in the worker need explicit forwarding to be visible at all.
+- Narrowed by ADR 0015: an Export shares this thread and the drawing code with the Preview, but has its own canvas, renderer and decoders.

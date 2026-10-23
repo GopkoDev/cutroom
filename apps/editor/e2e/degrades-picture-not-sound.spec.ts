@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { timebaseAsNumber, type Timebase } from "@cutroom/model"
+
 import { counterText, readCounter } from "./burned-in-counter"
 import { installFilePicker } from "./file-picker"
 import { importFixture, newProject, parkAt, play, settledFrame } from "./playback"
@@ -67,8 +69,9 @@ import {
 
 const FIXTURE = "sync-1080p30.mp4"
 const FRAMES = 900
-const FPS = 30
-const SECONDS = FRAMES / FPS
+/** The fixture's Timebase (scripts/make-fixtures.ts). */
+const TIMEBASE: Timebase = { numerator: 30, denominator: 1 }
+const SECONDS = FRAMES / timebaseAsNumber(TIMEBASE)
 
 /** 90 % of the engine's thread: spin 100 ms, yield 10 ms. */
 const ENGINE_LOAD: WorkerLoad = { busyMs: 100, idleMs: 10 }
@@ -110,7 +113,7 @@ async function playToTheEndAndCheck(
   }
   const shown = pictureAgainstSound(run.rendered, {
     anchor: sound.anchor,
-    fps: FPS,
+    timebase: TIMEBASE,
     fromFrame: 0,
     endsAt: stoppedAt,
   })
@@ -120,14 +123,18 @@ async function playToTheEndAndCheck(
   const lags = shown.filter((s) => s.soundAtArrival >= 0).map((s) => s.lag)
   const lagIn = (from: number, until: number) =>
     shown
-      .filter((s) => s.soundAtArrival >= from * FPS && s.soundAtArrival < until * FPS)
+      .filter(
+        (s) =>
+          s.soundAtArrival >= from * timebaseAsNumber(TIMEBASE) &&
+          s.soundAtArrival < until * timebaseAsNumber(TIMEBASE)
+      )
       .map((s) => s.lag)
   const early = lagIn(1, 6)
   const late = lagIn(SECONDS - 5, SECONDS)
   const deviations = sound.clicks.map((c) => Math.abs(c.deviation))
   // Where a click is first heard inside its second; the same for every second, Frame 0's too.
   const onset = sound.clicks[1]?.deviation ?? Number.NaN
-  const stopPosition = (stoppedAt - sound.anchor) * FPS
+  const stopPosition = (stoppedAt - sound.anchor) * timebaseAsNumber(TIMEBASE)
   const firstLeads = run.nodes.slice(0, 3).map((n) => ((n.when - n.calledAt) * 1_000).toFixed(1))
 
   test.info().annotations.push(

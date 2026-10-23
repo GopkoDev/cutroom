@@ -53,9 +53,10 @@ ignores any scene older than the one it holds. Throttled during continuous gestu
 { type: "render-frame", frame: integer, reason: "scrub" | "clock" }
 ```
 
-Requests one Frame. `scrub` abandons any streaming iterators and uses random access; `clock`
-continues the streaming path while the transport is `playing` (and is served by random access
-while it is `stopped`). The worker may coalesce: if newer requests arrive while one is in flight,
+Requests one Frame. `scrub` is the Playhead moved by hand, `clock` is playback. Both are rendered
+from each visible Clip's decoder: walked forward from where it stands when the Frame is ahead of
+it within `STEP_LIMIT` Frames or in the same GOP, and reopened at the Frame otherwise — a backward
+step or a far jump (ADR 0017). The worker may coalesce: if newer requests arrive while one is in flight,
 older ones are dropped rather than queued (FR-012). Every request is answered by exactly one
 `frame-rendered` or `frames-dropped`, unless it is lost outright (invariant 3). A `clock` request
 is also how the worker learns where the Playhead is, which bounds how far ahead it decodes sound.
@@ -78,10 +79,11 @@ always comes.
 ```
 
 Lets the worker open or close streaming iterators at the right moment, and start or stop
-decoding sound (`audio-pcm`). `playing` starts a playback run from `fromFrame`: iterators and audio
-decode from any earlier run are closed and both start again there. **A seek during playback is a
-second `playing`** with the new `fromFrame` — that is how the worker tells a jump of the clock
-from a lag. `stopped` closes everything.
+decoding sound (`audio-pcm`). `playing` starts a playback run from `fromFrame`: audio decode from
+any earlier run is closed and starts again there, and so is every picture iterator, except one
+that can walk forward to `fromFrame` under the same rule as `render-frame` (ADR 0017). **A seek
+during playback is a second `playing`** with the new `fromFrame` — that is how the worker tells a
+jump of the clock from a lag. `stopped` closes everything.
 
 ### `export-start`
 
