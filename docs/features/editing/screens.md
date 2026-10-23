@@ -47,9 +47,11 @@ updated_at: "2026-10-23"
   - **S4.** A press on a Clip's body still puts the Playhead on the pressed Frame, as a press
     anywhere on the Timeline did in step 1 (FR-007, which `scrub-latency.spec.ts` measures by
     clicking the middle of the Timeline, where Clips sit). The press also selects the Clip. Once
-    the press moves past 3 px it becomes a move drag, and the drag never scrubs the Playhead. A
-    press on a head or tail handle does not move the Playhead. Decided by the agent on the
-    owner's delegation, 2026-10-24, during `/sdd:implement`.
+    the press moves past 3 px it becomes a drag (a move from the body, a Trim from a handle),
+    and the drag never scrubs the Playhead. A press on a handle moves the Playhead too: an
+    exception for handles broke step 1's clicks near a Clip's edge (`scrub-latency.spec.ts`,
+    Frame 119 of the 10-minute fixture). Decided by the agent on the owner's delegation,
+    2026-10-24, during `/sdd:implement`.
 
 ## Screens
 
