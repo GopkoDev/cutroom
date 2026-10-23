@@ -276,94 +276,420 @@ C4Container
 
 ## 6. Runtime view
 
-These flows seed the runtime view. `/sdd:sequences editing` covers every §5 AC on top of them.
-Participants are the §5 containers and the editor's internal blocks named in the decomposition.
+The participants use SDD's generic vocabulary, mapped to the §5 containers as in step 1:
 
-**Critical flow 1: move Clips by drag, preview then one commit (US-03, AC-06, AC-07, AC-17, AC-19, AC-31)**
+| Participant | §5 container |
+|---|---|
+| `user` | the User |
+| `ui` | the Editor container (Timeline, store with the drag slice and the Selection, Web Audio graph and limiter) |
+| `service` | the Engine worker |
+| `data-store` | IndexedDB `cutroom` |
+| `external-system` | the User's disk (the Export's destination file) |
+
+The Model library is called inside `ui` and is not drawn: "ask the model" is a call to a rule
+function and "apply" is a call to `applyCommand` (ADR 0019). Messages are semantic. Every editing
+flow writes the same record, the Project Document, once per Gesture, so the persist notes say
+which parts of it change.
+
+### Flow 1 — Trim a Clip from either end (US-01)
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Timeline as Editor · Timeline
-    participant Store as Editor · store
-    participant Model as Model library
-    participant IDB as IndexedDB
-    participant Engine as Engine worker
-    User->>Timeline: presses on a Clip's body and moves past a few pixels
-    Timeline->>Store: open the drag slice
-    Store->>Store: stop Playback on the Frame reached, select the Clip if it was not selected
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open with a Clip on a Track
+    U->>UI: presses on a Clip's head or tail edge and moves past a few pixels
+    UI->>UI: stop Playback if it is running, open the drag preview for that edge
     loop every pointer move
-        User->>Timeline: moves the pointer
-        Timeline->>Store: move the drag slice to this delta and Track
-        Store->>Model: can these Clips land here
-        Model-->>Store: yes, or the reason they cannot
-        Store-->>Timeline: dragged Clips re-render at the target, or marked as refused
+        U->>UI: moves the pointer
+        UI->>UI: ask the model for this edge's Trim limits
+        alt the pointer is past a limit
+            UI-->>U: edge held at the Source's own end, the neighbour's edge, the Timeline's first Frame, or one Frame short of the other end
+        else within the limits
+            UI-->>U: edge follows the pointer on whole Frames
+        end
     end
-    alt released where they can land and something moved
-        User->>Timeline: releases
-        Timeline->>Store: release the drag
-        Store->>Model: apply move-clips inside one transaction
-        Model-->>Store: new Project and its patches
-        Store->>Store: one history entry named for the move
-        Store->>IDB: save the Project once and commit
-        Store->>Engine: post the new Scene
-        Engine-->>Timeline: Frame at the Playhead rendered
-    else Escape, a refused place, or nothing moved
-        User->>Timeline: presses Escape or releases
-        Timeline->>Store: cancel the drag
-        Store-->>Timeline: preview dropped, Project untouched, nothing saved
+    alt released with a change
+        U->>UI: releases
+        UI->>UI: apply trim-clip in one transaction, a head Trim advances the In-point by whole Frames
+        UI->>UI: one history entry named Trim
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the Clip's start, duration and In-point)
+        UI->>S: post the new Scene
+        S-->>UI: Frame at the Playhead rendered
+        UI-->>U: Clip trimmed, no other Clip moved, the Preview shows the new Frame
+    else Escape, or released with no change
+        UI-->>U: Clip as it was, no undo step, nothing saved
     end
+    opt the Clip's Source is Offline
+        Note over UI,S: limits come from the Source length recorded at import, no permission is asked, the Clip renders empty until the User grants access
+    end
+    Note over U,UI: Postcondition: Clips never overlap, nothing starts before Frame 0, every Clip is at least one Frame long and inside its Source
 ```
 
-**Critical flow 2: Split at the Playhead (US-02, AC-04, AC-05, AC-29, AC-31)**
+### Flow 2 — Split at the Playhead (US-02)
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Store as Editor · store
-    participant Audio as Editor · audio graph
-    participant Model as Model library
-    participant IDB as IndexedDB
-    participant Engine as Engine worker
-    User->>Store: presses S or the Split button
-    Store->>Audio: stop Playback if it is running
-    Audio-->>Store: stopped on the Frame reached
-    Store->>Model: which Clips does a Split at the Playhead cut, given the Selection
-    alt one or more Clips qualify
-        Model-->>Store: the Clips to cut
-        Store->>Model: apply split-clips with new ids for the second halves
-        Model-->>Store: new Project and its patches
-        Store->>Store: one history entry named Split, second halves become the Selection
-        Store->>IDB: save the Project once and commit
-        Store->>Engine: post the new Scene
-    else no Clip under the Playhead, or none of the selected ones
-        Model-->>Store: nothing to split, with the reason
-        Store-->>User: notice saying why, nothing changes, no undo step
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open, the Playhead is on a Frame
+    U->>UI: presses S or the Split button
+    opt Playback is running
+        UI->>UI: stop Playback on the Frame it reached
+    end
+    UI->>UI: ask the model which Clips a Split at the Playhead cuts, given the Selection
+    alt Clips qualify, the selected ones under the Playhead, or with no Selection every Clip under it on either Track
+        UI->>UI: apply split-clips in one transaction, with new ids for the second halves
+        UI->>UI: one history entry named Split, the second halves become the Selection
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (each cut Clip becomes two, the second with its own In-point)
+        UI->>S: post the new Scene
+        UI-->>U: the halves meet at the Playhead, playing across the Edit point looks and sounds as before
+    else Clips are selected but the Playhead is strictly inside none of them
+        UI-->>U: notice that no selected Clip is under the Playhead, nothing changes, no undo step
+    else nothing is selected and the Playhead is in a Gap or on a Clip's first Frame
+        UI-->>U: notice that no Clip is under the Playhead, nothing changes, no undo step
     end
 ```
 
-**Critical flow 3: two Clips sounding at once, in Playback and in Export (US-09, AC-23)**
+### Flow 3 — Move and reorder Clips (US-03)
 
 ```mermaid
 sequenceDiagram
-    actor User
-    participant Audio as Editor · audio graph
-    participant Engine as Engine worker
-    User->>Audio: presses Play over a stretch where both Tracks have a Clip
-    Audio->>Audio: limiter delay measured once for this sample rate
-    Engine->>Audio: sound of the lower Clip, placed on the Timeline
-    Engine->>Audio: sound of the upper Clip, placed on the Timeline
-    Audio->>Audio: each Clip at full level into one master bus, then the limiter
-    Audio->>Audio: every chunk scheduled earlier by the measured delay
-    Audio-->>User: both sounds heard in sync, peaks over full scale softened
-    User->>Audio: starts an Export
-    loop every 10 s segment
-        Audio->>Engine: asks for the segment's sound of every Clip
-        Engine-->>Audio: sound of each Clip in the segment
-        Audio->>Audio: same graph in an offline context, with a pre-roll for the limiter
-        Audio->>Engine: the mixed segment for the encoder
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open, one or two video Tracks hold Clips
+    U->>UI: presses on a Clip's body and moves past a few pixels
+    UI->>UI: stop Playback if it is running, on the Frame it reached
+    opt the Clip was not selected
+        UI->>UI: make it the only selected Clip
+    end
+    UI->>UI: open the drag preview for every selected Clip
+    loop every pointer move
+        U->>UI: moves the pointer, on this Track or the other
+        UI->>UI: ask the model whether every dragged Clip can land at this Frame delta and Track
+        alt every Clip can land
+            UI-->>U: preview at the target, on whole Frames
+        else an overlap, a start before Frame 0, or a two-Track Selection leaving its Tracks
+            UI-->>U: preview marked as cannot be placed here
+        end
+    end
+    alt released where every Clip can land and something moved
+        U->>UI: releases
+        UI->>UI: apply move-clips in one transaction, each Clip keeps its id
+        UI->>UI: one history entry named for the move
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the moved Clips' starts and Tracks)
+        UI->>S: post the new Scene
+        S-->>UI: Frame rendered, a Clip on the upper Track covers the lower Track
+        UI-->>U: Clips at the new place, their spacing kept
+    else Escape, a release where they cannot land, or nothing moved
+        UI-->>U: every Clip back where it started, no undo step, nothing saved
+    end
+    Note over U,D: Postcondition: the saved Project never held an intermediate position
+```
+
+### Flow 4 — Delete Clips, leaving the Gap or closing it (US-04)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open
+    U->>UI: presses Delete or Backspace, or Shift+Delete or the Ripple delete button
+    opt Playback is running
+        UI->>UI: stop Playback on the Frame it reached
+    end
+    alt nothing is selected
+        UI-->>U: nothing changes, no undo step, nothing saved
+    else a plain delete
+        UI->>UI: apply delete-clips without ripple in one transaction, one history entry named Delete
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the Clips removed, nothing else moved)
+        UI->>S: post the new Scene
+        UI-->>U: the Clips are gone, a Gap is left where each was, black and silent where no other Track has a Clip
+    else a Ripple delete
+        UI->>UI: ask the model how far each later Clip shifts on its own Track
+        UI->>UI: apply delete-clips with ripple in one transaction, one history entry named Ripple delete
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the Clips removed, later Clips on the same Track shifted back)
+        UI->>S: post the new Scene
+        UI-->>U: the Clips are gone, each Track closed its own Gaps, Clips on the other Track did not move
     end
 ```
+
+### Flow 5 — Duplicate Clips (US-05)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open
+    U->>UI: presses Cmd+D or the Duplicate button
+    opt Playback is running
+        UI->>UI: stop Playback on the Frame it reached
+    end
+    alt nothing is selected
+        UI-->>U: nothing changes, no undo step, nothing saved
+    else one or more Clips are selected
+        UI->>UI: ask the model where the block of copies goes
+        alt every Track the Selection spans has room directly after it
+            UI->>UI: the block goes directly after the Selection
+        else one of those Tracks lacks room
+            UI->>UI: the block goes after the last Clip on those Tracks
+        end
+        UI->>UI: apply duplicate-clips in one transaction, with new ids, spacing kept
+        UI->>UI: one history entry named Duplicate, the copies become the Selection
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the copies, same Source and In-point as their originals)
+        UI->>S: post the new Scene
+        UI-->>U: copies placed as one block and selected, no Clip covered
+    end
+```
+
+### Flow 6 — Select the Clips an edit acts on (US-06)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant D as data-store
+
+    Note over U,UI: Precondition: Clips on two Tracks, Playback may be running
+    U->>UI: clicks a Clip without moving the pointer
+    UI-->>U: only that Clip is marked as selected
+    U->>UI: Shift-clicks or Cmd-clicks another Clip
+    UI-->>U: it is added, or removed if it was selected
+    U->>UI: presses Cmd+A
+    UI-->>U: every Clip on every Track is selected
+    U->>UI: presses Escape with no drag open, or clicks an empty part of a Track
+    UI-->>U: the Selection is empty
+    Note over UI,D: none of these is an undo step or a save, and Playback keeps running
+    U->>UI: undoes or redoes a Gesture that removes a selected Clip
+    UI->>UI: apply the history entry, then drop from the Selection every Clip that no longer exists
+    UI-->>U: that Clip leaves the Selection, the others stay selected
+    Note over U,UI: Postcondition: the Selection never names a Clip that is not on the Timeline
+```
+
+### Flow 7 — Undo, redo and reload (US-07)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Trim, a move and a Ripple delete were made in this session
+    U->>UI: presses Cmd+Z or Undo, or Shift+Cmd+Z or Redo
+    alt a drag is open, or there is nothing to undo or redo
+        UI-->>U: the control shows it is not available, nothing changes
+    else
+        UI->>UI: apply the entry's inverse patches for undo, or its patches for redo, the whole Gesture at once
+        UI->>UI: prune the Selection to Clips that exist
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (as it was before or after that Gesture)
+        UI->>S: post the new Scene
+        UI-->>U: the Gesture is taken back or put back whole, a drag to where it began, the controls name the next steps
+    end
+    U->>UI: reloads the page, or leaves to the Project list and opens the Project again
+    UI->>D: load the Project Document
+    D-->>UI: the Project as the last Gesture saved it
+    UI->>UI: check every invariant on load, start with an empty history
+    alt the Document breaks an invariant (an overlap, a Clip before Frame 0 or outside its Source)
+        UI-->>U: the Project is refused with the reason, nothing is written
+    else
+        UI->>S: post the Scene
+        UI-->>U: the Timeline exactly as the last Gesture left it, Undo and Redo unavailable
+    end
+```
+
+### Flow 8 — Add and remove a video Track (US-08)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Project is open
+    U->>UI: presses Add Track
+    alt the Project already has two video Tracks
+        UI-->>U: notice that a Project has at most two video Tracks for now, nothing changes
+    else one video Track
+        UI->>UI: apply add-track in one transaction, with a new id, on top of the existing Track
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the new empty Track)
+        UI-->>U: an empty Track above, its Clips will cover the lower Track and its Gaps show it through
+    end
+    U->>UI: presses Remove Track in a Track's header
+    alt it is the only Track
+        UI-->>U: notice that a Project always keeps at least one Track, nothing changes
+    else two Tracks
+        UI->>UI: apply remove-track in one transaction, the Track and all its Clips
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the Track and its Clips removed)
+        UI->>S: post the new Scene
+        UI-->>U: the Track and its Clips are gone, one undo restores them in full
+    end
+    Note over U,UI: Both buttons stop Playback first if it is running
+```
+
+### Flow 9 — Hear every Clip's sound (US-09)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+
+    Note over U,UI: Precondition: Clips with sound overlap on the two Tracks
+    U->>UI: presses Play
+    opt the limiter's delay is not yet measured for this sample rate
+        UI->>UI: render an impulse through the limiter offline and read where it lands
+    end
+    UI->>S: stream from the Playhead
+    S-->>UI: sound of the lower Clip, placed on the Timeline
+    S-->>UI: sound of the upper Clip, placed on the Timeline
+    UI->>UI: each Clip at its own full level into one master bus, then the limiter
+    UI->>UI: schedule every chunk earlier by the measured delay
+    S-->>UI: Frames, the upper Clip's picture drawn over the lower one's
+    UI-->>U: both sounds heard together and in sync, peaks over full scale softened, only the lower picture covered
+    Note over UI,S: an Export mixes with the same graph, see the cross-cutting flow
+```
+
+### Flow 10 — Place a Source on the Timeline again (US-10)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+
+    Note over U,UI: Precondition: a Source in the Source list, used by a Clip or not
+    U->>UI: uses the place action on that Source
+    opt Playback is running
+        UI->>UI: stop Playback on the Frame it reached
+    end
+    UI->>UI: apply add-clip in one transaction, a new id, the whole Source at the length recorded at import, after the last Clip on the bottom Track
+    UI->>UI: one history entry named Place, the new Clip becomes the Selection
+    UI->>D: save the Project Document once and commit
+    Note over UI,D: persists Project Document (the new Clip)
+    UI->>S: post the new Scene
+    alt the Source is Linked
+        S-->>UI: Frame rendered from the Source already attached, the file is not read again
+        UI-->>U: the new Clip shows its picture
+    else the Source is Offline
+        Note over UI,S: nothing is read and no permission is asked, the Clip renders empty
+        UI-->>U: the new Clip, empty until the User grants access
+    end
+```
+
+### Cross-cutting: Export while editing (AC-26, AC-27)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant UI as ui
+    participant S as service
+    participant D as data-store
+    participant X as external-system
+
+    Note over U,UI: Precondition: a Timeline with a Trim, a Split, a moved Clip and a Gap
+    U->>UI: starts an Export in the export dialog
+    UI->>S: start the Export with the Scene frozen at this moment
+    loop every 10 s segment until the last Frame
+        S->>S: render each Frame from the frozen Scene on the Export's own renderer
+        UI->>S: ask for the segment's sound of every Clip
+        S-->>UI: sound of each Clip in the segment
+        UI->>UI: mix offline with the same graph, a pre-roll for the limiter, then drop the pre-roll
+        UI->>S: the mixed segment for the encoder
+    end
+    opt the User edits while the Export runs
+        U->>UI: makes any Gesture
+        UI->>UI: apply the command, one history entry
+        UI->>D: save the Project Document once and commit
+        Note over UI,D: persists Project Document (the edit)
+        UI->>S: post the new Scene for the Preview only
+        Note over UI,S: the running Export keeps its frozen Scene
+    end
+    S-->>UI: Export done
+    UI->>X: commit the destination file
+    UI-->>U: Export finished, every Frame matches the Preview, both sides of every Edit point and the black, silent Gap Frames included
+```
+
+**Use-case and AC coverage.**
+
+| Spec item | Shown in |
+|---|---|
+| US-01 | Flow 1 |
+| US-02 | Flow 2 (export of the result: cross-cutting flow) |
+| US-03 | Flow 3 |
+| US-04 | Flow 4 (editing during an Export: cross-cutting flow) |
+| US-05 | Flow 5 |
+| US-06 | Flow 6 |
+| US-07 | Flow 7 |
+| US-08 | Flow 8 |
+| US-09 | Flow 9 and the cross-cutting flow |
+| US-10 | Flow 10 |
+| AC-01 | Flow 1, released with a change |
+| AC-02, AC-03 | Flow 1, the limits branch, and its postcondition |
+| AC-04, AC-29 | Flow 2, the Clips-qualify branch |
+| AC-05 | Flow 2, the two notice branches |
+| AC-06, AC-08, AC-09 | Flow 3, the release branch (upper Track covers lower; the unselected-Clip and two-Track rules) |
+| AC-07 | Flow 3, the cannot-be-placed branch and the refused release |
+| AC-10 | Flow 4, plain delete |
+| AC-11 | Flow 4, Ripple delete |
+| AC-12, AC-13 | Flow 5, the two placement branches |
+| AC-14 | Flow 6, the Selection steps and their note |
+| AC-15 | Flow 6, the prune after undo or redo; Flow 7 |
+| AC-16 | Flow 7, the apply branch |
+| AC-17 | Flow 3 postcondition and Flow 7 (a drag undoes to where it began) |
+| AC-18 | Flow 7, the unavailable branch |
+| AC-19 | Flow 3, Escape; Flow 1, Escape |
+| AC-20, AC-30 | Flow 8, Add Track |
+| AC-21, AC-22 | Flow 8, Remove Track |
+| AC-23 | Flow 9 and the cross-cutting flow's mix |
+| AC-24 | Flow 10 |
+| AC-25 | Flow 1, the Offline note; Flow 10, the Offline branch. The same rule holds for Split, move, Duplicate and delete, which read nothing from the file |
+| AC-26, AC-27 | Cross-cutting flow |
+| AC-28 | Flow 7, reload |
+| AC-31 | Flows 1–5, 8 and 10: every Gesture stops Playback first; Flow 6: a plain click does not |
+| AC-32 | Flow 1, released with no change; Flow 3, nothing moved; Flows 4 and 5, nothing selected |
+
+Flagged for design: none. Every participant is a §5 container, and the Model library is drawn
+inside `ui` as in step 1. No flow is asynchronous: there is no webhook, queue or callback, so no
+idempotency key or dead-letter branch applies. Flow 7's load-refusal branch is spec §6.1's abuse
+case, not an AC.
 
 ## 7. Deployment view
 
