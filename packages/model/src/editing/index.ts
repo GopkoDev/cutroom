@@ -4,3 +4,4 @@
 export { trimRange, trimRefusal, type TrimEdge, type TrimRange } from "./limits"
 export { splitRefusal, splitTargets, type SplitTargets } from "./split"
 export { checkMove, type Verdict } from "./placement"
+export { rippleShifts } from "./ripple"

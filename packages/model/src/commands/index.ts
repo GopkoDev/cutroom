@@ -120,6 +120,17 @@ export interface MoveClipsCommand extends CommandFields {
   readonly toTrackId: string | null
 }
 
+/**
+ * Removes each named Clip. Without `ripple` the Gaps stay; with it, every later Clip on the same
+ * Track moves back by the total length deleted before it on that Track, each Track closed on its own.
+ * Whole or refused: an unknown id stops the lot. An empty list changes nothing.
+ */
+export interface DeleteClipsCommand extends CommandFields {
+  readonly type: "delete-clips"
+  readonly clipIds: readonly string[]
+  readonly ripple: boolean
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
   | CreateProjectCommand
@@ -129,6 +140,7 @@ export type Command =
   | TrimClipCommand
   | SplitClipsCommand
   | MoveClipsCommand
+  | DeleteClipsCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).

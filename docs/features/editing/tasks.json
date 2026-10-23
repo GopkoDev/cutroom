@@ -144,7 +144,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T007-ripple-shifts-and-delete-clips.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T008",

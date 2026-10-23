@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/editing/ripple.ts", "packages/model/src/editing
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T007 — Add the rippleShifts rule and the delete-clips command, plain and ripple
 

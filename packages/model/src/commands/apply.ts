@@ -33,6 +33,7 @@ import { enablePatches, produceWithPatches, type Draft, type Patch } from "immer
 import { isTimestamp } from "../document/parse"
 import { CURRENT_SCHEMA_VERSION, type Clip, type Project } from "../document/types"
 import { checkMove } from "../editing/placement"
+import { rippleShifts } from "../editing/ripple"
 import { splitRefusal } from "../editing/split"
 import { trimRefusal } from "../editing/limits"
 import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
@@ -41,6 +42,7 @@ import type {
   AddClipCommand,
   Command,
   CreateProjectCommand,
+  DeleteClipsCommand,
   ImportSourceCommand,
   MoveClipsCommand,
   RefusalReason,
@@ -558,6 +560,50 @@ function moveClips(project: Project, command: MoveClipsCommand): CommandResult {
   })
 }
 
+function deleteClips(project: Project, command: DeleteClipsCommand): CommandResult {
+  expectStamp(command)
+  const named = new Set<string>()
+  for (const id of command.clipIds) {
+    expectIdentifier(command.type, id, "clipIds")
+    if (named.has(id)) {
+      refuse(command.type, "invalid", `${JSON.stringify(id)} is named more than once`)
+    }
+    named.add(id)
+  }
+  const onTimeline = new Set<string>()
+  for (const track of project.timeline.tracks)
+    for (const clip of track.clips) onTimeline.add(clip.id)
+  for (const id of named) {
+    if (!onTimeline.has(id)) {
+      refuse(
+        command.type,
+        "unknown-clip",
+        `no Clip on the Timeline carries the id ${JSON.stringify(id)}`
+      )
+    }
+  }
+  if (named.size === 0) return { project, patches: [], inversePatches: [] }
+
+  // The rule decides how far each Clip moves, so the reducer and the editor's preview agree.
+  const back = new Map<string, number>()
+  if (command.ripple) {
+    for (const { clipId, delta } of rippleShifts(project, command.clipIds)) back.set(clipId, delta)
+  }
+  return write(project, (draft) => {
+    for (const track of draft.timeline.tracks) {
+      // Removing keeps the order, and moving every later Clip back by what was removed before it
+      // cannot make it overlap its predecessor, so the Track stays ordered and non-overlapping.
+      track.clips = track.clips.filter((clip) => !named.has(clip.id))
+      for (const clip of track.clips) {
+        const delta = back.get(clip.id)
+        if (delta !== undefined) clip.startFrame -= delta
+      }
+    }
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -597,6 +643,8 @@ export function applyCommand(project: Project | null, command: Command): Command
       return splitClips(requireProject(project, command), command)
     case "move-clips":
       return moveClips(requireProject(project, command), command)
+    case "delete-clips":
+      return deleteClips(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(

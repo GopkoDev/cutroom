@@ -14,7 +14,7 @@
 | T004 | Add wholeFramesIn, the trimRange rule and the trim-clip command | domain | Dmytro Hopko | M | T002 | done | COMMIT |
 | T005 | Add the splitTargets rule and the split-clips command | domain | Dmytro Hopko | S | T004 | done | COMMIT |
 | T006 | Add the checkMove placement rule and the move-clips command | domain | Dmytro Hopko | M | T005 | done | COMMIT |
-| T007 | Add the rippleShifts rule and the delete-clips command, plain and ripple | domain | Dmytro Hopko | S | T006 | todo | — |
+| T007 | Add the rippleShifts rule and the delete-clips command, plain and ripple | domain | Dmytro Hopko | S | T006 | done | COMMIT |
 | T008 | Add the duplicateDelta rule and the duplicate-clips command | domain | Dmytro Hopko | S | T007 | todo | — |
 | T009 | Add the add-track and remove-track commands with the two-Track limit | domain | Dmytro Hopko | S | T008 | todo | — |
 | T010 | Add placeSourceCommand and make importCommands reuse it | domain | Dmytro Hopko | S | T009 | todo | — |
