@@ -10,6 +10,10 @@ import { dirname, isAbsolute, relative, resolve } from "node:path"
  *
  * Only relative (`./`, `../`) and absolute (`/…`) specifiers can escape. Bare specifiers are
  * package names, resolved by the package manager inside the tree, so they are left alone.
+ *
+ * `forbid` lists repository paths that are off limits in the same way. A gitignored copy of the
+ * prototype kept under `docs/reference/` for reading sits inside the root, so without it the
+ * copy would be one plausible-looking relative import away.
  */
 
 /** @type {import("eslint").Rule.RuleModule} */
@@ -22,18 +26,24 @@ const rule = {
     schema: [
       {
         type: "object",
-        properties: { root: { type: "string" } },
+        properties: {
+          root: { type: "string" },
+          forbid: { type: "array", items: { type: "string" } },
+        },
         additionalProperties: false,
       },
     ],
     messages: {
       outside:
         '"{{specifier}}" resolves to {{target}}, outside the repository root. Nothing beside the repository may be imported (ADR 0010).',
+      forbidden:
+        '"{{specifier}}" resolves into {{area}}, a reference copy kept for reading. It may not be imported (ADR 0010).',
     },
   },
 
   create(context) {
     const root = resolve(context.options[0]?.root ?? process.cwd())
+    const forbidden = (context.options[0]?.forbid ?? []).map((p) => resolve(root, p))
     const from = dirname(context.filename)
 
     const check = (node, specifier) => {
@@ -45,6 +55,15 @@ const rule = {
       const step = relative(root, target)
       if (step === ".." || step.startsWith(`..${"/"}`) || isAbsolute(step)) {
         context.report({ node, messageId: "outside", data: { specifier, target } })
+        return
+      }
+      const area = forbidden.find((f) => target === f || target.startsWith(`${f}/`))
+      if (area) {
+        context.report({
+          node,
+          messageId: "forbidden",
+          data: { specifier, area: relative(root, area) },
+        })
       }
     }
 
