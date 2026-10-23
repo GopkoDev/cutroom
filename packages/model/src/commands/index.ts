@@ -131,6 +131,18 @@ export interface DeleteClipsCommand extends CommandFields {
   readonly ripple: boolean
 }
 
+/**
+ * Puts a copy of each named Clip `delta` Frames from its original, on the same Track, showing the
+ * same part of the same Source. `copies` pairs each original with the id of its copy. The caller
+ * takes `delta` from `duplicateDelta`. Whole or refused: one copy that cannot land stops them all.
+ * An empty list changes nothing.
+ */
+export interface DuplicateClipsCommand extends CommandFields {
+  readonly type: "duplicate-clips"
+  readonly delta: number
+  readonly copies: readonly { readonly clipId: string; readonly newClipId: string }[]
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
   | CreateProjectCommand
@@ -141,6 +153,7 @@ export type Command =
   | SplitClipsCommand
   | MoveClipsCommand
   | DeleteClipsCommand
+  | DuplicateClipsCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).

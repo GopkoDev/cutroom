@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/editing/placement.ts", "packages/model/src/edit
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T008 — Add the duplicateDelta rule and the duplicate-clips command
 

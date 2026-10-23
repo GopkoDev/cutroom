@@ -43,6 +43,7 @@ import type {
   Command,
   CreateProjectCommand,
   DeleteClipsCommand,
+  DuplicateClipsCommand,
   ImportSourceCommand,
   MoveClipsCommand,
   RefusalReason,
@@ -604,6 +605,88 @@ function deleteClips(project: Project, command: DeleteClipsCommand): CommandResu
   })
 }
 
+function duplicateClips(project: Project, command: DuplicateClipsCommand): CommandResult {
+  expectStamp(command)
+  if (!Number.isSafeInteger(command.delta)) {
+    refuse(command.type, "invalid", `delta must be a whole number, got ${String(command.delta)}`)
+  }
+  const named = new Set<string>()
+  for (const copy of command.copies) {
+    expectIdentifier(command.type, copy.clipId, "copies.clipId")
+    expectIdentifier(command.type, copy.newClipId, "copies.newClipId")
+    if (named.has(copy.clipId)) {
+      refuse(command.type, "invalid", `${JSON.stringify(copy.clipId)} is named more than once`)
+    }
+    named.add(copy.clipId)
+  }
+
+  const taken = new Set<string>()
+  const located: { trackIndex: number; clip: Clip; newClipId: string }[] = []
+  for (const track of project.timeline.tracks) for (const clip of track.clips) taken.add(clip.id)
+  for (const copy of command.copies) {
+    let found: { trackIndex: number; clip: Clip } | undefined
+    for (const [trackIndex, track] of project.timeline.tracks.entries()) {
+      const clip = track.clips.find((existing) => existing.id === copy.clipId)
+      if (clip !== undefined) found = { trackIndex, clip }
+    }
+    if (found === undefined) {
+      refuse(
+        command.type,
+        "unknown-clip",
+        `no Clip on the Timeline carries the id ${JSON.stringify(copy.clipId)}`
+      )
+    }
+    located.push({ ...found, newClipId: copy.newClipId })
+  }
+  for (const { newClipId } of located) {
+    if (taken.has(newClipId)) {
+      refuse(
+        command.type,
+        "duplicate-id",
+        `a Clip with the id ${JSON.stringify(newClipId)} is already on the Timeline, or is named ` +
+          "twice in this command — ids are never reused"
+      )
+    }
+    taken.add(newClipId)
+  }
+  if (located.length === 0) return { project, patches: [], inversePatches: [] }
+
+  // Every copy is checked against the Clips already on its Track. The copies keep their relative
+  // positions, so they cannot overlap one another.
+  let beforeStart = false
+  for (const { trackIndex, clip } of located) {
+    const start = clip.startFrame + command.delta
+    const end = start + clip.durationFrames
+    const track = project.timeline.tracks[trackIndex]
+    for (const other of track?.clips ?? []) {
+      if (start < other.startFrame + other.durationFrames && other.startFrame < end) {
+        refuse(
+          command.type,
+          "overlap",
+          `a copy of ${JSON.stringify(clip.id)} would overlap ${JSON.stringify(other.id)} — see duplicateDelta`
+        )
+      }
+    }
+    if (start < 0) beforeStart = true
+  }
+  if (beforeStart) {
+    refuse(command.type, "before-timeline-start", "a copy would begin before Frame 0")
+  }
+
+  return write(project, (draft) => {
+    for (const { trackIndex, clip, newClipId } of located) {
+      const track = draft.timeline.tracks[trackIndex]
+      if (track === undefined) continue
+      track.clips.push({ ...clip, id: newClipId, startFrame: clip.startFrame + command.delta })
+    }
+    // Each Track stays ordered by `startFrame`; a copy cannot tie with a Clip already there.
+    for (const track of draft.timeline.tracks)
+      track.clips.sort((a, b) => a.startFrame - b.startFrame)
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -645,6 +728,8 @@ export function applyCommand(project: Project | null, command: Command): Command
       return moveClips(requireProject(project, command), command)
     case "delete-clips":
       return deleteClips(requireProject(project, command), command)
+    case "duplicate-clips":
+      return duplicateClips(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(

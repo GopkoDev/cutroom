@@ -166,7 +166,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T008-duplicate-delta-and-duplicate-clips.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T009",
