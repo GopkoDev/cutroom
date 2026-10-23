@@ -1,5 +1,12 @@
 <!--
 Sync Impact Report
+Version change: 1.1.0 → 1.1.1 (PATCH: location and references only, no principle changed)
+  The file moved from .specify/memory/constitution.md to docs/constitution.md when the project
+  left Spec Kit for the SDD plugin (sdd@sdd). SDD has no constitution artefact of its own, so this
+  stays the authored rules document; docs/architecture-map.md (§Constraints, §Reconciliation)
+  carries the principles to every SDD stage. The Spec Kit templates named below no longer exist.
+
+Earlier:
 Version change: 1.0.0 → 1.1.0 (Principle II gains one bounded, named exception)
   (previous: none → 1.0.0, initial ratification; template placeholders replaced)
 Modified principles:
@@ -7,7 +14,8 @@ Modified principles:
     Timeline positions. Time expressed in a Source's own timescale (how long the Source is, and
     where in it a Clip begins) is named as the one exception, because a Source's media time is
     not the Project's to renumber. Rationale and consequences: docs/adr/0002, and
-    specs/001-import-play-export/data-model.md where the fields live.
+    specs/001-import-play-export/data-model.md where the fields live (now
+    docs/features/import-play-export/data-model.md).
 Added sections:
   - Core Principles: I–VI (1.0.0)
   - Platform Constraints (1.0.0)
@@ -126,4 +134,4 @@ way, MINOR for adding a principle or materially expanding guidance, PATCH for cl
 wording. Compliance is verified at review time; complexity that contradicts a principle must be
 justified in writing or removed.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-07-31
+**Version**: 1.1.1 | **Ratified**: 2026-07-31 | **Last Amended**: 2026-10-23
