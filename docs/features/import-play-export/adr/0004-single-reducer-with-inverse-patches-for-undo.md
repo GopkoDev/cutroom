@@ -1,0 +1,1 @@
+../../../adr/0004-single-reducer-with-inverse-patches-for-undo.md

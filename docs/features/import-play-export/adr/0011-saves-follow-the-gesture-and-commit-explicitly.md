@@ -1,0 +1,1 @@
+../../../adr/0011-saves-follow-the-gesture-and-commit-explicitly.md

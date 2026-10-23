@@ -1,0 +1,1 @@
+../../../adr/0006-chromium-first-cross-browser-comes-from-the-cloud.md

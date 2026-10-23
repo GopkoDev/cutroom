@@ -761,10 +761,16 @@ the SDD migration.
 | 0016 | The Source Timebase is measured, not read | Accepted | §8 |
 | 0017 | Scrubbing reuses the decoder's position; long-GOP footage gets a proxy later | Accepted | §6 |
 
-ADR files live at the repository level, under [`docs/adr/NNNN-<title>.md`](../../adr/), not under
-this feature's `adr/`. 0001–0010 are the project's foundational decisions, made with this slice.
-0011–0017 were made while building it, and the T094 audit marked them as after-the-fact. They were
-kept in one numbered sequence so their numbers did not change.
+ADR files live at the repository level, under [`docs/adr/NNNN-<title>.md`](../../adr/). 0001–0010
+are the project's foundational decisions, made with this slice. 0011–0017 were made while building
+it, and the T094 audit marked them as after-the-fact. They were kept in one numbered sequence so
+their numbers did not change.
+
+This feature's [`adr/`](./adr/) holds a relative symlink to each of the 17 files, so the SDD stages
+that read a feature's `adr/` (`tasks`, `review`, `decide-adr`) find them without a second copy. Edit
+the file in `docs/adr/`, never the link. A new decision for this feature is written to `docs/adr/`
+as the next number (0018 on) and linked here; `decide-adr` counts the links, so its next number
+matches.
 
 ## 10. Quality requirements
 

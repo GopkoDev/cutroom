@@ -1,0 +1,1 @@
+../../../adr/0012-playback-sound-is-placed-on-the-timeline-by-the-worker.md
