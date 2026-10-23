@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/commands/import.ts", "packages/model/src/comman
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T010 — Add placeSourceCommand and make importCommands reuse it
 

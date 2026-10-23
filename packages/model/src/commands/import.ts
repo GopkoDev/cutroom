@@ -26,7 +26,7 @@
 // that starts inside the media is kept, and no rate arithmetic happens in this file.
 
 import { CommandError } from "./apply"
-import type { Command } from "./index"
+import type { AddClipCommand, Command } from "./index"
 import type { Clip, Project, Source, Track } from "../document/types"
 import { framesForDuration, type Timebase } from "../timebase"
 
@@ -103,14 +103,61 @@ export function importCommands(project: Project | null, request: ImportRequest):
     ]
   }
 
-  const track = project.timeline.tracks.find((candidate) => candidate.kind === "video")
-  if (track === undefined) {
+  if (project.timeline.tracks[0] === undefined) {
     throw new CommandError(
       "unknown-track",
       "importCommands: this Project has no video Track to place the Clip on"
     )
   }
-  return [importing, { type: "add-clip", at, trackId: track.id, clip: clipAt(endOf(track)) }]
+  // The Clip is placed exactly as placing the Source from the Source list would place it, so an
+  // import and a place cannot disagree on where a whole Source lands (AC-24). The Source is not in
+  // the Project yet — `import-source` runs first — so the placement is asked of the Project as it
+  // will be once it is.
+  const withSource: Project = { ...project, sources: [...project.sources, source] }
+  return [importing, placeSourceCommand(withSource, { at, sourceId: source.id, clipId })]
+}
+
+/** What placing a Source from the Source list needs: the instant, which Source, a fresh Clip id. */
+export interface PlaceRequest {
+  readonly at: string
+  readonly sourceId: string
+  readonly clipId: string
+}
+
+/**
+ * The `add-clip` that places the whole of a Source already in the Project on the Timeline again
+ * (US-10, AC-24): at the length recorded at import, In-point 0, directly after the last Clip on
+ * the bottom Track (`tracks[0]`), where an import puts it too.
+ *
+ * It reads nothing but the Project — no file, no handle, no permission — so it works the same for
+ * an Offline Source (AC-25). Throws {@link CommandError} with `unknown-source` for a Source that
+ * is not in the Project and `too-short` for one shorter than a single Frame; the reducer refuses
+ * the rest when the command is applied.
+ */
+export function placeSourceCommand(project: Project, request: PlaceRequest): AddClipCommand {
+  const source = project.sources.find((candidate) => candidate.id === request.sourceId)
+  if (source === undefined) {
+    throw new CommandError(
+      "unknown-source",
+      `placeSourceCommand: no Source in this Project carries the id ${JSON.stringify(request.sourceId)}`
+    )
+  }
+  const bottom = project.timeline.tracks[0]
+  if (bottom === undefined) {
+    throw new CommandError("unknown-track", "placeSourceCommand: this Project has no Track")
+  }
+  return {
+    type: "add-clip",
+    at: request.at,
+    trackId: bottom.id,
+    clip: {
+      id: request.clipId,
+      sourceId: source.id,
+      startFrame: endOf(bottom),
+      durationFrames: coveringFrames(project.timebase, source),
+      sourceInPoint: { numerator: 0, denominator: 1 },
+    },
+  }
 }
 
 /**

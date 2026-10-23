@@ -209,7 +209,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T010-place-source-command.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T011",

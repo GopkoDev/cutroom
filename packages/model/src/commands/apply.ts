@@ -36,7 +36,7 @@ import { checkMove } from "../editing/placement"
 import { rippleShifts } from "../editing/ripple"
 import { splitRefusal } from "../editing/split"
 import { trimRefusal } from "../editing/limits"
-import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
+import { framesForDuration, frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
 
 import type {
   AddClipCommand,
@@ -238,7 +238,8 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
     )
   }
 
-  if (!project.sources.some((source) => source.id === clip.sourceId)) {
+  const source = project.sources.find((candidate) => candidate.id === clip.sourceId)
+  if (source === undefined) {
     refuse(
       command.type,
       "unknown-source",
@@ -295,6 +296,20 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
       "overlap",
       `the Clip would run to Frame ${clipEnd}, but ${JSON.stringify(after.id)} on this Track ` +
         `starts at Frame ${after.startFrame} — Clips must not overlap`
+    )
+  }
+
+  // A Clip shows only what its Source holds: no more Frames than remain after the In-point, by
+  // the same ceiling the import sized the first Clip with (ADR 0018). parseProject checks the same
+  // rule on load, so a Clip placed here is never one a reload would refuse.
+  const remaining = sourceTimeBefore(source.duration, clip.sourceInPoint)
+  const available = remaining.numerator === 0 ? 0 : framesForDuration(project.timebase, remaining)
+  if (clip.durationFrames > available) {
+    refuse(
+      command.type,
+      "source-bounds",
+      `the Clip asks for ${clip.durationFrames} Frames, but its Source holds only ${available} ` +
+        "after the In-point"
     )
   }
 
