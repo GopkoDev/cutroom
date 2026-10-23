@@ -28,7 +28,7 @@ import type { Project } from "@cutroom/model"
 
 import type { Transport } from "@/audio/transport"
 import { Button } from "@/components/ui/button"
-import { canRedo, canUndo, useEditorStore } from "@/store"
+import { canRedo, canUndo, nextRedoLabel, nextUndoLabel, useEditorStore } from "@/store"
 import { isExportBusy, type ExportController, type ExportState } from "@/store/export"
 
 import { formatTimecode } from "./timecode"
@@ -98,6 +98,8 @@ export function TopBar({
   const playing = useEditorStore((state) => state.transport === "playing")
   const undoable = useEditorStore(canUndo)
   const redoable = useEditorStore(canRedo)
+  const undoLabel = useEditorStore(nextUndoLabel)
+  const redoLabel = useEditorStore(nextRedoLabel)
   const undo = useEditorStore((state) => state.undo)
   const redo = useEditorStore((state) => state.redo)
   const closeProject = useEditorStore((state) => state.closeProject)
@@ -186,7 +188,7 @@ export function TopBar({
             undo()
           }}
         >
-          Undo
+          {undoLabel === null ? "Undo" : `Undo ${undoLabel}`}
         </Button>
         <Button
           variant="outline"
@@ -197,7 +199,7 @@ export function TopBar({
             redo()
           }}
         >
-          Redo
+          {redoLabel === null ? "Redo" : `Redo ${redoLabel}`}
         </Button>
       </div>
     </header>

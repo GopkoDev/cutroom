@@ -385,7 +385,7 @@
         "apps/editor/e2e/editing-drag.spec.ts"
       ],
       "file": "docs/features/editing/tasks/T017-trim-and-move-drags-on-the-timeline.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T018",

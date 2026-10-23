@@ -15,9 +15,12 @@ const NO_CLIPS: readonly Clip[] = []
 
 export function TrackRow({
   trackId,
+  trackOrder,
   pxPerFrame,
 }: {
   readonly trackId: string
+  /** The Tracks top to bottom, as drawn: where a dragged Clip's ghost goes on another Track. */
+  readonly trackOrder: readonly string[]
   readonly pxPerFrame: number
 }) {
   const clips = useEditorStore(
@@ -38,6 +41,8 @@ export function TrackRow({
             <ClipView
               key={clip.id}
               clip={clip}
+              trackId={trackId}
+              trackOrder={trackOrder}
               sourceName={
                 sources?.find((source) => source.id === clip.sourceId)?.name ?? clip.sourceId
               }

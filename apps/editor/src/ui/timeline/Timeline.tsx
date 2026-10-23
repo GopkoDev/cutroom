@@ -31,6 +31,12 @@
 //     (screens.md S4, FR-007), and the Clip is selected: alone, or toggled with Shift or ⌘. A
 //     press on one of its handles is the same press; only what a drag from it does differs.
 //
+// A press on a Clip that moves past `DRAG_THRESHOLD_PX` becomes a drag (ADR 0020): a Trim from a
+// handle, a move from the body. From then on pointer moves go to the drag controller, which asks
+// the model where the edge stops or whether the Clips can land, and touch nothing else — the
+// Playhead stays put, the Project and the engine are untouched until release. Release commits
+// one command; Escape, or losing the pointer, cancels (AC-19).
+//
 // ## Render cost
 //
 // While playing, the Playhead moves every Frame. So only `TimelineBody` — the slider's element and
@@ -41,6 +47,7 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -54,6 +61,7 @@ import { useShallow } from "zustand/react/shallow"
 import { cn } from "@/lib/utils"
 import { useEditorStore } from "@/store"
 
+import { useEditing } from "../editing-context"
 import { Notice } from "../Notice"
 import {
   frameAtOffset,
@@ -207,6 +215,10 @@ type Press =
       readonly collapseOnRelease: boolean
       readonly x: number
       readonly y: number
+      /** The edge's Frame when the press landed, for a Trim; the Clip's start for a move. */
+      readonly fromFrame: number
+      /** Set once the press has become a drag. */
+      dragging: boolean
     }
 
 export function Timeline() {
@@ -223,6 +235,24 @@ export function Timeline() {
 
   const [bodyRef, bodyWidth] = useWidth<HTMLDivElement>()
   const press = useRef<Press | null>(null)
+  const editing = useEditing()
+
+  // Escape cancels an open drag (AC-19). Listening on the window, because a drag's pointer is
+  // captured by the body but the key goes wherever focus is.
+  useEffect(() => {
+    if (editing === null) return
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || useEditorStore.getState().drag === null) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      editing.drag.cancel()
+      press.current = null
+    }
+    window.addEventListener("keydown", onKeyDown, true)
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true)
+    }
+  }, [editing])
 
   const pxPerFrame = bodyWidth > 0 ? bodyWidth / shown : 0
   const step = rulerStep(pxPerFrame)
@@ -258,6 +288,8 @@ export function Timeline() {
     const handleName = target?.closest<HTMLElement>("[data-handle]")?.dataset.handle
     const handle = handleName === "head" || handleName === "tail" ? handleName : null
     const state = useEditorStore.getState()
+    const start = Number(clipElement.dataset.startFrame)
+    const length = Number(clipElement.dataset.durationFrames)
     const modifier = event.shiftKey || event.metaKey || event.ctrlKey
     const wasSelected = state.selection.includes(clipId)
     if (modifier) state.toggleSelected(clipId)
@@ -269,6 +301,8 @@ export function Timeline() {
       collapseOnRelease: !modifier && wasSelected,
       x: event.clientX,
       y: event.clientY,
+      fromFrame: handle === "tail" ? start + length : start,
+      dragging: false,
     }
     moveTo(event.clientX, event.currentTarget)
   }
@@ -276,13 +310,42 @@ export function Timeline() {
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return
     const current = press.current
-    if (current?.kind === "scrub") moveTo(event.clientX, event.currentTarget)
+    if (current === null) return
+    if (current.kind === "scrub") {
+      moveTo(event.clientX, event.currentTarget)
+      return
+    }
+    if (editing === null || pxPerFrame <= 0) return
+
+    if (!current.dragging) {
+      const moved =
+        Math.abs(event.clientX - current.x) > DRAG_THRESHOLD_PX ||
+        Math.abs(event.clientY - current.y) > DRAG_THRESHOLD_PX
+      if (!moved) return
+      current.dragging = true
+      if (current.handle === null) editing.drag.openMove(current.clipId)
+      else editing.drag.openTrim(current.clipId, current.handle)
+    }
+
+    // Whole Frames only: the pointer's distance from where it pressed, rounded to a Frame.
+    const delta = Math.round((event.clientX - current.x) / pxPerFrame)
+    if (current.handle !== null) {
+      editing.drag.trimTo(current.fromFrame + delta)
+      return
+    }
+    editing.drag.moveTo(delta, trackUnder(event.clientX, event.clientY, current.clipId))
   }
 
   function onPointerUp(event: PointerEvent<HTMLDivElement>) {
     const current = press.current
     press.current = null
     if (current === null) return
+    if (current.kind === "clip" && current.dragging) {
+      // A pointer that is cancelled, rather than released, drops the drag (AC-19).
+      if (event.type === "pointercancel") editing?.drag.cancel()
+      else editing?.drag.release()
+      return
+    }
     const moved =
       Math.abs(event.clientX - current.x) > DRAG_THRESHOLD_PX ||
       Math.abs(event.clientY - current.y) > DRAG_THRESHOLD_PX
@@ -294,6 +357,21 @@ export function Timeline() {
     } else if (current.collapseOnRelease) {
       state.select(current.clipId)
     }
+  }
+
+  /** The Track row under the pointer, or the grabbed Clip's own Track when it is over none. */
+  function trackUnder(clientX: number, clientY: number, clipId: string): string {
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      if (element instanceof HTMLElement && element.dataset.testid === "timeline-track") {
+        const id = element.dataset.trackId
+        if (id !== undefined) return id
+      }
+    }
+    const project = useEditorStore.getState().project
+    const own = project?.timeline.tracks.find((track) =>
+      track.clips.some((clip) => clip.id === clipId)
+    )
+    return own?.id ?? ""
   }
 
   // The keyboard reaches every Frame too, one at a time: FR-007 is "any Frame", and a pointer on a
@@ -371,7 +449,12 @@ export function Timeline() {
 
           <div role="listbox" aria-label="Clips" aria-multiselectable>
             {trackIds.map((trackId) => (
-              <TrackRow key={trackId} trackId={trackId} pxPerFrame={pxPerFrame} />
+              <TrackRow
+                key={trackId}
+                trackId={trackId}
+                trackOrder={trackIds}
+                pxPerFrame={pxPerFrame}
+              />
             ))}
           </div>
         </TimelineBody>

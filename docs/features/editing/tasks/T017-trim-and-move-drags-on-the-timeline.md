@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/ui/timeline/", "apps/editor/e2e/editing-drag.spec.
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T017 — Drive Trim and move drags from Clip handles and bodies through the drag slice
 
