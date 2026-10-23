@@ -22,7 +22,7 @@ The interface target is the Kino prototype, recorded in [`docs/reference/README.
 | # | Step | Source | Size | Status |
 |---|---|---|:---:|---|
 | 1 | Import, play, export: the user's own file becomes a Clip they can scrub, play in sync and export as an MP4 → [import-play-export](./features/import-play-export/spec.md) | `docs/features/import-play-export/spec.md` §1. Context | L | shipped |
-| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second video Track and every Clip's sound mixed → [editing](./features/editing/spec.md) | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | spec'd |
+| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second video Track and every Clip's sound mixed → [editing](./features/editing/spec.md) | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | building |
 | 3 | Images as Sources → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Images as Sources | fog | idea |
 | 4 | Transitions → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Transitions · `docs/reference/README.md` §Clip speed and other Clip commands | fog | idea |
 | 5 | Effects and colour grading → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Effects and colour grading · `docs/reference/README.md` §Inspector: effects and colour | fog | idea |
