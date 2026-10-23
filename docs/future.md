@@ -3,11 +3,12 @@
 Things we have deliberately left out, with what we already worked out about each. This is not a
 roadmap and nothing here is committed to — it exists so that a decision reached in conversation is
 not re-derived from scratch six months later, and so that the cost of each addition is visible
-before someone promises it.
+before someone promises it. The roadmap is [roadmap.md](./roadmap.md), which decomposes these
+entries into steps and cites this file, section by section, as its source.
 
-An entry graduates from this file by becoming a spec under `specs/`, and a decision inside it
-graduates by becoming an ADR. Until then, treat everything here as a considered opinion, not a
-plan.
+An entry graduates from this file by becoming a spec under `docs/features/<slug>/`
+(`/sdd:specify <slug>`), and a decision inside it graduates by becoming an ADR. Until then, treat
+everything here as a considered opinion, not a plan.
 
 Each entry says what it touches in the Project Document, because that is what determines whether
 it needs a schema version and a migration (ADR 0007).
@@ -19,7 +20,7 @@ it needs a schema version and a migration (ADR 0007).
 The first slice deliberately produces a viewer, not an editor — it proves the architecture rather
 than serving a user. This is the sketch of what has to follow, written down now so it is not
 re-derived later. It is **not** a spec: when the first slice closes, this becomes the input to
-`/speckit-specify`, and what is learned building the first slice will change it.
+`/sdd:specify`, and what is learned building the first slice will change it.
 
 **The user story it has to earn.** *"I can take three clips, cut out what I don't want, put them
 in the order I want, and export the result."* That, and nothing more, is what turns this from a
