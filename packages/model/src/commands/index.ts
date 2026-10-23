@@ -85,3 +85,25 @@ export interface RelinkSourceCommand extends CommandFields {
 /** Everything that can change a Project in this slice. */
 export type Command =
   CreateProjectCommand | ImportSourceCommand | AddClipCommand | RelinkSourceCommand
+
+/**
+ * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).
+ * The message stays for people; this is for code — the store maps it to a notice, a test asserts it.
+ */
+export type RefusalReason =
+  | "overlap"
+  | "before-timeline-start"
+  | "too-short"
+  | "source-bounds"
+  | "track-limit"
+  | "last-track"
+  | "nothing-to-split"
+  | "unknown-clip"
+  | "unknown-track"
+  | "unknown-source"
+  | "duplicate-id"
+  | "no-project"
+  | "invalid"
+
+/** The most video Tracks a Project may have. A product limit refused by add-track, not a document rule. */
+export const MAX_VIDEO_TRACKS = 2

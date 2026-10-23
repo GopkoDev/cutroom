@@ -39,6 +39,7 @@ import type {
   Command,
   CreateProjectCommand,
   ImportSourceCommand,
+  RefusalReason,
   RelinkSourceCommand,
 } from "./index"
 
@@ -62,21 +63,28 @@ export interface CommandResult {
  * anything is written, so the Project the caller holds is exactly as it was.
  */
 export class CommandError extends Error {
-  constructor(message: string) {
+  readonly reason: RefusalReason
+
+  constructor(reason: RefusalReason, message: string) {
     super(message)
+    this.reason = reason
     this.name = "CommandError"
   }
 }
 
 /** Every refusal reads the same way and names the command that was refused. */
-function refuse(type: Command["type"], problem: string): never {
-  throw new CommandError(`applyCommand: ${type}: ${problem}`)
+function refuse(type: Command["type"], reason: RefusalReason, problem: string): never {
+  throw new CommandError(reason, `applyCommand: ${type}: ${problem}`)
 }
 
 /** A whole number at or above `minimum`, or a refusal naming the field (FR-006). */
 function expectWhole(type: Command["type"], value: number, minimum: number, what: string): void {
   if (!Number.isSafeInteger(value) || value < minimum) {
-    refuse(type, `${what} must be a whole number, ${minimum} or greater, got ${String(value)}`)
+    refuse(
+      type,
+      "invalid",
+      `${what} must be a whole number, ${minimum} or greater, got ${String(value)}`
+    )
   }
 }
 
@@ -97,12 +105,16 @@ function expectRatio(
 /** The timestamp a command stamps on the document must be one `parseProject` will accept back. */
 function expectStamp(command: Command): void {
   if (!isTimestamp(command.at)) {
-    refuse(command.type, `at must be an ISO 8601 date and time, got ${JSON.stringify(command.at)}`)
+    refuse(
+      command.type,
+      "invalid",
+      `at must be an ISO 8601 date and time, got ${JSON.stringify(command.at)}`
+    )
   }
 }
 
 function expectIdentifier(type: Command["type"], value: string, what: string): void {
-  if (value === "") refuse(type, `${what} must not be empty`)
+  if (value === "") refuse(type, "invalid", `${what} must not be empty`)
 }
 
 /** Runs one write against the current document and collects the patches Immer generated for it. */
@@ -132,6 +144,7 @@ function createProject(prior: Project | null, command: CreateProjectCommand): Co
   if (prior !== null) {
     refuse(
       command.type,
+      "invalid",
       "a Project is already open — create-project starts from nothing, so that undoing it means " +
         "no Project rather than some other Project"
     )
@@ -176,6 +189,7 @@ function importSource(project: Project, command: ImportSourceCommand): CommandRe
   if (project.sources.some((existing) => existing.id === source.id)) {
     refuse(
       command.type,
+      "duplicate-id",
       `a Source with the id ${JSON.stringify(source.id)} is already in this Project — ids are ` +
         "never reused, and re-importing the same file makes a second Source"
     )
@@ -207,6 +221,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
   if (!Number.isSafeInteger(clipEnd)) {
     refuse(
       command.type,
+      "invalid",
       `the Clip would end at Frame ${clipEnd}, beyond the range of whole numbers`
     )
   }
@@ -214,6 +229,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
   if (!project.sources.some((source) => source.id === clip.sourceId)) {
     refuse(
       command.type,
+      "unknown-source",
       `no Source in this Project carries the id ${JSON.stringify(clip.sourceId)} — import it first`
     )
   }
@@ -221,6 +237,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
     if (track.clips.some((existing) => existing.id === clip.id)) {
       refuse(
         command.type,
+        "duplicate-id",
         `a Clip with the id ${JSON.stringify(clip.id)} is already on the Timeline — ids are never reused`
       )
     }
@@ -231,6 +248,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
   if (track === undefined) {
     refuse(
       command.type,
+      "unknown-track",
       `no Track in this Project carries the id ${JSON.stringify(command.trackId)}`
     )
   }
@@ -254,6 +272,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
   if (before !== undefined && before.startFrame + before.durationFrames > clip.startFrame) {
     refuse(
       command.type,
+      "overlap",
       `the Clip would start at Frame ${clip.startFrame}, but ${JSON.stringify(before.id)} on this ` +
         `Track runs to Frame ${before.startFrame + before.durationFrames} — Clips must not overlap`
     )
@@ -261,6 +280,7 @@ function addClip(project: Project, command: AddClipCommand): CommandResult {
   if (after !== undefined && clipEnd > after.startFrame) {
     refuse(
       command.type,
+      "overlap",
       `the Clip would run to Frame ${clipEnd}, but ${JSON.stringify(after.id)} on this Track ` +
         `starts at Frame ${after.startFrame} — Clips must not overlap`
     )
@@ -285,6 +305,7 @@ function relinkSource(project: Project, command: RelinkSourceCommand): CommandRe
   if (source === undefined) {
     refuse(
       command.type,
+      "unknown-source",
       `no Source in this Project carries the id ${JSON.stringify(command.sourceId)}`
     )
   }
@@ -323,7 +344,7 @@ function relinkSource(project: Project, command: RelinkSourceCommand): CommandRe
 /** The Project a command needs to already exist, or a refusal saying it does not. */
 function requireProject(prior: Project | null, command: Command): Project {
   if (prior === null) {
-    refuse(command.type, "there is no Project open — create-project comes first")
+    refuse(command.type, "no-project", "there is no Project open — create-project comes first")
   }
   return prior
 }
@@ -355,6 +376,7 @@ export function applyCommand(project: Project | null, command: Command): Command
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(
         (command as Command).type,
+        "invalid",
         "is not a command this build knows — the Command union in commands/index.ts is the list"
       )
   }

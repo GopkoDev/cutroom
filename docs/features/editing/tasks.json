@@ -32,7 +32,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T002-command-error-carries-refusal-reason.md",
-      "status": "in_progress"
+      "status": "done"
     },
     {
       "id": "T003",

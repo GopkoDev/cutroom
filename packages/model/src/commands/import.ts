@@ -105,7 +105,10 @@ export function importCommands(project: Project | null, request: ImportRequest):
 
   const track = project.timeline.tracks.find((candidate) => candidate.kind === "video")
   if (track === undefined) {
-    throw new CommandError("importCommands: this Project has no video Track to place the Clip on")
+    throw new CommandError(
+      "unknown-track",
+      "importCommands: this Project has no video Track to place the Clip on"
+    )
   }
   return [importing, { type: "add-clip", at, trackId: track.id, clip: clipAt(endOf(track)) }]
 }
@@ -123,10 +126,14 @@ function coveringFrames(timebase: Timebase, source: Source): number {
     // The Timebase module throws `RangeError` for a malformed ratio. Here it means the Source's
     // metadata is unusable, which is a refused import, not a bug in Cutroom.
     if (!(error instanceof RangeError)) throw error
-    throw new CommandError(`importCommands: the Source's duration is unusable — ${error.message}`)
+    throw new CommandError(
+      "invalid",
+      `importCommands: the Source's duration is unusable — ${error.message}`
+    )
   }
   if (frames === 0) {
     throw new CommandError(
+      "too-short",
       `importCommands: ${JSON.stringify(source.name)} is too short to cover a single Frame`
     )
   }

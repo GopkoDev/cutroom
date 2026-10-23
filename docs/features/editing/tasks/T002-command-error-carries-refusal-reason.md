@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/commands/apply.ts", "packages/model/src/command
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T002 — Give CommandError a machine-readable refusal reason across every existing refusal
 
