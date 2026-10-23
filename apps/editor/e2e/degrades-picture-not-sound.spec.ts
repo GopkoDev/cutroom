@@ -186,7 +186,20 @@ async function playToTheEndAndCheck(
   expect(sound.worstGridResidual).toBeLessThan(0.01)
   // The anchor is the transport's: once the start's sound was in hand, the start margin (0.05 s)
   // ahead, so never sooner than that after the press. How much later is the load's business.
-  expect(sound.anchor - run.playingAt.contextTime).toBeGreaterThanOrEqual(0.05 - 0.005)
+  // The nodes are scheduled the limiter's measured delay early so that they are *heard* on the
+  // anchor (ADR 0022); the margin is about when sound is heard, so the delay is added back.
+  const limiterDelay = await page.evaluate(
+    async ({ specifier, rate }) => {
+      const module = (await import(specifier)) as {
+        measureBrowserLimiterDelay(sampleRate: number): Promise<number>
+      }
+      return module.measureBrowserLimiterDelay(rate)
+    },
+    { specifier: "/src/audio/limiter-delay.ts", rate: sound.sampleRate }
+  )
+  expect(sound.anchor + limiterDelay - run.playingAt.contextTime).toBeGreaterThanOrEqual(
+    0.05 - 0.005
+  )
   // Every whole-second click, once, within a millisecond of its second, and all at the same sample
   // of it, second 0 included. (On the fixture each is first above the threshold at sample +7, as
   // ffmpeg decodes it.)

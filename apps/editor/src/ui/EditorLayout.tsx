@@ -62,7 +62,7 @@
 // stays failed: the Project in this tab is then newer than the one in storage, and the page asks
 // before it unloads.
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import type { PixelSize, Timebase } from "@cutroom/model"
 
@@ -71,6 +71,8 @@ import { measureBrowserLimiterDelay } from "@/audio/limiter-delay"
 import { streamExportAudio } from "@/audio/offline-mix"
 import { startEngine, type EngineClient } from "@/engine-client"
 import { useEditorStore, type EngineFatalReport } from "@/store"
+import { createDragController } from "@/store/drag"
+import { createEditActions } from "@/store/edit"
 import { createExportController, type ExportController } from "@/store/export"
 import { createSourceStatusTracker, type SourceStatusTracker } from "@/store/source-status"
 
@@ -80,7 +82,8 @@ import { Notice } from "./Notice"
 import { pickSaveFile } from "./file-picker"
 import { RelinkPrompt } from "./RelinkPrompt"
 import { SourcesPanel } from "./SourcesPanel"
-import { Timeline } from "./Timeline"
+import { EditingContext, type Editing } from "./editing-context"
+import { Timeline } from "./timeline/Timeline"
 import { TopBar } from "./TopBar"
 
 /**
@@ -299,6 +302,23 @@ export function EditorLayout() {
   const [exportOpen, setExportOpen] = useState(false)
   const [renderer, setRenderer] = useState<string | null>(null)
 
+  // The editing controllers. They keep nothing of their own — everything they touch is in the
+  // store — so they are simply made again when the transport they stop Playback with arrives
+  // (AC-31); before the engine exists there is no Playback to stop.
+  const editing = useMemo<Editing>(() => {
+    const dependencies = {
+      store: useEditorStore,
+      now: () => new Date().toISOString(),
+      stopPlayback: () => {
+        transport?.stop()
+      },
+    }
+    return {
+      edit: createEditActions({ ...dependencies, newId: () => crypto.randomUUID() }),
+      drag: createDragController(dependencies),
+    }
+  }, [transport])
+
   // The frame size the raster is created at. Fixed at the first render — a lazy initial state, not
   // a ref, because it *is* rendered — because the element's width and height cannot be changed
   // after the transfer. From then on the worker resizes it to whatever the newest Scene says
@@ -436,65 +456,67 @@ export function EditorLayout() {
   }, [engine, scene, sceneRevision, scrubFrame, sourceStatus, renderer])
 
   return (
-    <div data-testid="editor-shell" className="flex h-svh flex-col overflow-hidden">
-      <TopBar
-        transport={transport}
-        exporter={exporter}
-        onExport={() => {
-          setExportOpen(true)
-        }}
-      />
-      {exporter === null ? null : (
-        <ExportDialog
-          controller={exporter}
-          open={exportOpen}
-          onClose={() => {
-            setExportOpen(false)
-          }}
-          onOpen={() => {
+    <EditingContext value={editing}>
+      <div data-testid="editor-shell" className="flex h-svh flex-col overflow-hidden">
+        <TopBar
+          transport={transport}
+          exporter={exporter}
+          onExport={() => {
             setExportOpen(true)
           }}
         />
-      )}
-      <SaveFailure />
+        {exporter === null ? null : (
+          <ExportDialog
+            controller={exporter}
+            open={exportOpen}
+            onClose={() => {
+              setExportOpen(false)
+            }}
+            onOpen={() => {
+              setExportOpen(true)
+            }}
+          />
+        )}
+        <SaveFailure />
 
-      <div className="flex min-h-0 flex-1">
-        <SourcesPanel tracker={tracker} />
+        <div className="flex min-h-0 flex-1">
+          <SourcesPanel tracker={tracker} />
 
-        <section
-          data-testid="preview-panel"
-          aria-label="Preview"
-          className="flex min-w-0 flex-1 flex-col"
-        >
-          <RelinkPrompt tracker={tracker} />
-          <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3">
-            {engineFatal === null ? (
-              <canvas
-                ref={previewRef}
-                data-testid="preview-canvas"
-                width={initialSize.width}
-                height={initialSize.height}
-                className="max-h-full max-w-full object-contain"
-              />
-            ) : (
-              <EngineStopped report={engineFatal} />
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
-            <PlayheadLabel />
-            <ShownLabel engine={engine} />
-            <span data-testid="engine-renderer" className="ml-auto">
-              {engineFatal !== null
-                ? "engine stopped"
-                : renderer === null
-                  ? "engine starting"
-                  : `engine: ${renderer}`}
-            </span>
-          </div>
-        </section>
+          <section
+            data-testid="preview-panel"
+            aria-label="Preview"
+            className="flex min-w-0 flex-1 flex-col"
+          >
+            <RelinkPrompt tracker={tracker} />
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-black p-3">
+              {engineFatal === null ? (
+                <canvas
+                  ref={previewRef}
+                  data-testid="preview-canvas"
+                  width={initialSize.width}
+                  height={initialSize.height}
+                  className="max-h-full max-w-full object-contain"
+                />
+              ) : (
+                <EngineStopped report={engineFatal} />
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-3 border-t px-3 py-1 text-xs text-muted-foreground">
+              <PlayheadLabel />
+              <ShownLabel engine={engine} />
+              <span data-testid="engine-renderer" className="ml-auto">
+                {engineFatal !== null
+                  ? "engine stopped"
+                  : renderer === null
+                    ? "engine starting"
+                    : `engine: ${renderer}`}
+              </span>
+            </div>
+          </section>
+        </div>
+
+        <Timeline />
       </div>
-
-      <Timeline />
-    </div>
+    </EditingContext>
   )
 }

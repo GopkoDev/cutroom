@@ -23,7 +23,7 @@
 | T013 | Add the drag-preview slice and retire the open-Gesture save debounce | app | Dmytro Hopko | M | T012, T010 | done | COMMIT |
 | T014 | Write one store function per Gesture, stopping Playback first, with refusal wording | app | Dmytro Hopko | M | T013 | done | COMMIT |
 | T015 | Mix every Clip through one limiter with its measured delay, in Playback and Export | app | Dmytro Hopko | L | — | done | COMMIT |
-| T016 | Rebuild the Timeline as Track rows of selectable Clip views with Track headers | ui | Dmytro Hopko | M | T014, T001 | todo | — |
+| T016 | Rebuild the Timeline as Track rows of selectable Clip views with Track headers | ui | Dmytro Hopko | M | T014, T001 | done | COMMIT |
 | T017 | Drive Trim and move drags from Clip handles and bodies through the drag slice | ui | Dmytro Hopko | M | T016 | todo | — |
 | T018 | Add the edit toolbar, named Undo and Redo, keyboard shortcuts and the Place action | ui | Dmytro Hopko | M | T017 | todo | — |
 | T019 | Prove the edited Export matches the Preview at every Edit point, with both sounds mixed | tests | Dmytro Hopko | M | T018, T015 | todo | — |

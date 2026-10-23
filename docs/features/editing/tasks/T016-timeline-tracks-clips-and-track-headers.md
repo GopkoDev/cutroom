@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/ui/timeline/", "apps/editor/src/ui/Timeline.tsx", 
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T016 — Rebuild the Timeline as Track rows of selectable Clip views with Track headers
 

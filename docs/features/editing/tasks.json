@@ -357,7 +357,7 @@
         "apps/editor/src/ui/EditorLayout.tsx"
       ],
       "file": "docs/features/editing/tasks/T016-timeline-tracks-clips-and-track-headers.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T017",
