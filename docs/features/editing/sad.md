@@ -213,10 +213,12 @@ declared surface, plus the IndexedDB data store.
 
 ```
 packages/model/src/
+├── timebase.ts         # + wholeFramesIn (rounds down), for the head-Trim limit (ADR 0018)
 ├── commands/
 │   ├── index.ts        # + trim-clip, split-clips, move-clips, delete-clips, duplicate-clips,
 │   │                   #   add-track, remove-track; CommandError gains a `reason`
-│   └── apply.ts        # + one case per command, each deciding through editing/
+│   ├── apply.ts        # + one case per command, each deciding through editing/
+│   └── import.ts       # + placeSourceCommand, which importCommands reuses (AC-24)
 ├── editing/            # NEW — pure rule functions, exported from the barrel
 │   ├── limits.ts       # Trim limits: Source bounds, neighbours, Frame 0, one Frame minimum
 │   ├── placement.ts    # can a set of Clips land at a delta / on a Track; Duplicate block placement
