@@ -36,10 +36,20 @@ The committed approach:
   Timeline shows the refusal while the drag is still in progress rather than only on release.
 - One Gesture is one undo step and one save, however many positions a drag passes through
   (D3, glossary "Gesture", ADR 0004, ADR 0011). Undo and redo are in the interface, by key and
-  by button, and each step is named for what it undoes.
+  by button, and each step is named for what it undoes. A Gesture that leaves the Project
+  unchanged records no undo step and no save.
+- A drag is a preview until it is released: the Timeline shows where the Clips would land, but
+  the Project changes only once, on release. Nothing is saved while a drag is open, so a reload
+  in the middle of a drag brings back the Project as it was before the drag. ADR 0011's
+  debounced save of an open drag is then never used, and `/sdd:design` records that.
+- Editing is allowed during Playback, but starting any Gesture stops Playback on the Frame it
+  has reached first, so a Split lands exactly on the Frame the User sees.
 - A Project can have a second video Track. The upper Track covers the lower one wherever it has
   a Clip; there is no transform, crop, opacity or blend yet. The sound of every Clip that is
-  playing, on every Track, is mixed together in Playback and in Export.
+  playing, on every Track, is mixed together in Playback and in Export: each Clip at its own
+  full level, the signals added, and a limiter that softens only the peaks that would go past
+  full scale, so a single Clip sounds exactly as it did in step 1 and two loud Clips do not
+  distort.
 - The interface takes its look and behaviour from the Kino reference where the reference covers
   it. Where the reference and Cutroom's document disagree (the reference lets Clips overlap),
   the document wins.
@@ -68,6 +78,16 @@ Traceability context:
   - A11: editing during an Export is allowed; the Export writes the Timeline as it was when it started (AC-26).
   - A12: the new terms go in the repo-root glossary.
   - A13: the §6 and §7 numbers as drafted; D4 goes to an ADR in `/sdd:design`; D1, the flaky engine-worker check and SC-003's open item carry over in §8.
+- `/sdd:clarify` ran at depth "easy". These assumptions were proposed by the agent and accepted
+  by the owner as a batch, along with the drag preview, the stop of Playback and the mixing rule
+  above (owner, 2026-10-23):
+  - A14: dragging a Clip that is not selected makes it the only selected Clip and moves it alone. A Selection that holds Clips on both Tracks moves only along the Tracks; a move that would push any selected Clip off the Tracks is refused, as in AC-07 (AC-09).
+  - A15: a head Trim also stops at the Timeline's first Frame (AC-03).
+  - A16: a Gesture that changes nothing records no undo step and no save. Examples are a Clip dropped where it started, a Trim already at its limit, and a delete or Duplicate with nothing selected (AC-32).
+  - A17: a Ripple delete of several Clips closes the Gaps on each Track separately. Every later Clip moves back by the total length deleted before it on its own Track, in one Gesture (AC-11).
+  - A18: a Duplicate of several Clips keeps their positions relative to each other. The copies are placed as a block directly after the end of the Selection when every Track involved has room there, and otherwise after the last Clip on those Tracks. This is one Gesture, and the copies become the Selection (AC-12, AC-13).
+  - A19: a Source placed from the Source list goes on the bottom Track, as an import does in step 1, and the new Clip becomes the Selection. An Offline Source can be placed too, at the length recorded at import (AC-24).
+  - A20: Delete or Backspace deletes and leaves a Gap. Shift+Delete and a button make a Ripple delete. A Track is added and removed with buttons in the Track header; the Kino reference covers none of these.
 
 ## 2. Goals
 
@@ -176,9 +196,9 @@ Traceability context:
 
 ### AC-03 (US-01) — domain invariant
 
-**Given** a Clip with another Clip directly against one end, or a Clip being trimmed to almost nothing
-**When** the User drags that end into the neighbour, or past the Clip's other end
-**Then** the end stops at the neighbour's edge, or one Frame short of the other end; Clips never overlap on a Track and a Clip is never shorter than one Frame
+**Given** a Clip with another Clip directly against one end, a Clip that starts on the Timeline's first Frame, or a Clip being trimmed to almost nothing
+**When** the User drags that end into the neighbour, its head before the Timeline's first Frame, or past the Clip's other end
+**Then** the end stops at the neighbour's edge, at the Timeline's first Frame, or one Frame short of the other end; Clips never overlap on a Track, nothing starts before the Timeline's first Frame, and a Clip is never shorter than one Frame
 
 ### AC-04 (US-02) — happy
 
@@ -214,7 +234,7 @@ Traceability context:
 
 **Given** several selected Clips, possibly on both Tracks
 **When** the User drags one of them
-**Then** all selected Clips move by the same number of Frames and keep their positions relative to each other; if any one of them cannot be placed, none of them moves (AC-07)
+**Then** all selected Clips move by the same number of Frames and keep their positions relative to each other; if any one of them cannot be placed, none of them moves (AC-07). A Selection holding Clips on both Tracks moves only along the Tracks, never onto another Track. Dragging a Clip that is not selected makes it the only selected Clip and moves it alone
 
 ### AC-10 (US-04) — happy
 
@@ -226,19 +246,19 @@ Traceability context:
 
 **Given** a Track holding Clips A, B and C, with B selected, and a second Track with Clips of its own
 **When** the User makes a Ripple delete of B
-**Then** B is gone and C, with everything after it on the same Track, moves back by B's length; Clips on the other Track do not move; and one undo restores B and puts every moved Clip back
+**Then** B is gone and C, with everything after it on the same Track, moves back by B's length; Clips on the other Track do not move; and one undo restores B and puts every moved Clip back. With several Clips selected, each Track closes its own Gaps: every later Clip moves back by the total length deleted before it on its own Track, in one Gesture
 
 ### AC-12 (US-05) — happy
 
 **Given** a selected Clip with a Gap after it at least as long as the Clip
 **When** the User duplicates it
-**Then** a copy showing the same part of the same Source is placed directly after the original, and the copy becomes the Selection
+**Then** a copy showing the same part of the same Source is placed directly after the original, and the copy becomes the Selection. With several Clips selected, the copies keep their positions relative to each other and are placed as one block directly after the end of the Selection, in one Gesture
 
 ### AC-13 (US-05) — domain invariant
 
 **Given** a selected Clip with no room directly after it
 **When** the User duplicates it
-**Then** the copy is placed after the last Clip on that Track instead of over the next Clip, because Clips never overlap on a Track
+**Then** the copy is placed after the last Clip on that Track instead of over the next Clip, because Clips never overlap on a Track. A block of several copies goes after the last Clip on the Tracks it spans when any one of those Tracks lacks room directly after the Selection
 
 ### AC-14 (US-06) — happy
 
@@ -262,7 +282,7 @@ Traceability context:
 
 **Given** a drag that passed through many positions before it was released
 **When** the User undoes once
-**Then** the Clip is back where the drag began, not at an intermediate position, and the saved Project holds the drag's end position, because a Gesture is one undo step
+**Then** the Clip is back where the drag began, not at an intermediate position, because a Gesture is one undo step. Before the undo, the saved Project held only the drag's end position and never an intermediate one; after the undo, it holds the position where the drag began
 
 ### AC-18 (US-07) — error
 
@@ -298,13 +318,13 @@ Traceability context:
 
 **Given** a Clip with sound on the upper Track over a Clip with sound on the lower Track
 **When** the User plays across the stretch where both are present, and exports the Project
-**Then** both sounds are heard together, in sync with their pictures, in Playback and in the exported file; only the picture of the lower Clip is covered
+**Then** both sounds are heard together, each at its own full level and in sync with its picture, in Playback and in the exported file, with no distortion where their sum would go past full scale; only the picture of the lower Clip is covered
 
 ### AC-24 (US-10) — happy
 
-**Given** a Source in the Source list, whether or not any Clip still uses it
-**When** the User places it on a Track from the Source list
-**Then** a new Clip showing the whole Source is added after the last Clip on that Track, without reading or importing the file again
+**Given** a Source in the Source list, whether or not any Clip still uses it, and whether it is Linked or Offline
+**When** the User places it from the Source list
+**Then** a new Clip showing the whole Source, at the length recorded at import, is added after the last Clip on the bottom Track and becomes the Selection, without reading or importing the file again
 
 ### AC-25 (US-01) — authorization
 
@@ -341,6 +361,18 @@ Traceability context:
 **Given** a Project that already has two video Tracks
 **When** the User tries to add another Track
 **Then** adding is refused and the User is told a Project has at most two video Tracks for now
+
+### AC-31 (US-03) — cross-context
+
+**Given** Playback in progress
+**When** the User starts any Gesture, such as a drag, a Split or a delete
+**Then** Playback stops first, on the Frame it had reached, and the Gesture then acts on the Timeline as it stands; a Split cuts at that Frame
+
+### AC-32 (US-07) — domain invariant
+
+**Given** a Gesture that would leave the Project unchanged, such as a Clip dropped where it started, a Trim already at its limit, or a delete or Duplicate with nothing selected
+**When** the User completes it
+**Then** no undo step is recorded and nothing is saved, and the undo control still names the Gesture before it
 
 ## 6. Non-functional requirements
 
