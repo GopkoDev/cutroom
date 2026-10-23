@@ -12,7 +12,8 @@ This is the `worker` surface's contract ([sad.md](../sad.md) frontmatter `target
 events template is shaped for a message bus. This contract is the `postMessage` protocol between
 the editor's main thread and the engine Web Worker, so it keeps its own message-by-message form
 below. The template's head is filled in here. Migrated from the Spec Kit
-`contracts/worker-protocol.md`, with the body unchanged.
+`contracts/worker-protocol.md`, with the body unchanged except the `ready` and `fatal` payloads,
+which were completed from `protocol.ts` (see [api-sync-report.md](./api-sync-report.md)).
 
 ## Channel: `postMessage` (main thread ↔ `@cutroom/engine/worker`)
 
@@ -187,7 +188,7 @@ no export running there is nothing to cancel and nothing is said.
 
 | Message | Payload | Meaning |
 |---|---|---|
-| `ready` | `{ capabilities }` | Init succeeded; carries the results of the `canEncode` probes. |
+| `ready` | `{ capabilities: { renderer, video: { codec, encodable, atFrameSize }[], audio: { codec, encodable }[], frameSize } }` | Init succeeded. `renderer` is the backend PixiJS actually got in the worker (`"webgl"`, `"webgpu"` or `"canvas"`), the one engine fact the main thread cannot observe once the canvas is transferred (ADR 0003). `video` and `audio` hold one entry per codec in Mediabunny's own `VIDEO_CODECS` / `AUDIO_CODECS`, unsupported ones kept with `encodable: false`. `encodable` is `canEncode`; `atFrameSize` is `canEncodeVideo` at the `init` frame size, because hardware encoders decline sizes, not codecs. Audio has no second answer: its sample rate and channels are export settings chosen later. `frameSize` is the size the video probe used. |
 | `source-attached` | `{ sourceId, duration, timebase, dimensions, hasAudio, codecs }` | Metadata read from the file. `duration` and `timebase` are exact rationals in the Source's own timescale — the Principle II exception, and the only seconds that cross this boundary. |
 | `source-failed` | `{ sourceId, reason }` | Undecodable or unreadable; the main thread reports it and leaves the Project unchanged (FR-003). |
 | `frame-rendered` | `{ frame, revision, skipped }` | The canvas now shows this Frame of this Scene revision. An announcement, not a reply: it is not correlated to any one request. `skipped` is how many Frames playback passed over, never shown, to reach this one — the Frames strictly between the previous Frame rendered in this playback run (or the run's `fromFrame`) and this one; always 0 for `scrub`. It is carried here, not as a `frames-dropped`, so that every request still gets exactly one answer. |
@@ -199,7 +200,7 @@ no export running there is nothing to cancel and nothing is said.
 | `export-done` | `{ bytes }` | The worker finalized the file and closed its stream; `bytes` is its size. A finished file is this **and** `forwardingWritable(...).committed` resolving: the commit happens on the main thread, and a write or commit failing there can reach the worker too late or never (measured: a destination whose every write failed still produced `export-done`). |
 | `export-cancelled` | `{}` | Aborted cleanly: the stream was aborted, so nothing was committed. |
 | `export-failed` | `{ reason }` | No file is presented as complete: the stream was aborted. Covers an encoder error, a destination that stopped accepting writes, a malformed audio stream, and a Source that went Offline or was relinked mid-export (the file would no longer be the Timeline as it stood at the start). |
-| `fatal` | `{ reason }` | The worker cannot continue; the UI must say so rather than appear frozen. |
+| `fatal` | `{ reason, stack? }` | The worker cannot continue; the UI must say so rather than appear frozen. Every throw is caught at the boundary and forwarded as this (invariant 5). `reason` is for a person to read; the optional `stack` is for whoever has to find it. |
 
 ## Invariants
 
