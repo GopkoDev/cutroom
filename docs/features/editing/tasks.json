@@ -75,7 +75,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T004-trim-range-and-trim-clip.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T005",

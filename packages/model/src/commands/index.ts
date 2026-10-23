@@ -82,9 +82,27 @@ export interface RelinkSourceCommand extends CommandFields {
   readonly fingerprint: SourceFingerprint
 }
 
+/**
+ * Drags one end of a Clip to a Frame, showing less of its Source or more of it. `frame` is where
+ * the edge goes: for `head` the new `startFrame`; for `tail` the new end, `startFrame +
+ * durationFrames` (exclusive). A head Trim moves the In-point by the same number of Frames, so the
+ * Clip's first Frame is still the Source Frame it was; a tail Trim changes only `durationFrames`.
+ * The target is exact: the reducer refuses a Frame `trimRange` does not allow rather than moving it.
+ */
+export interface TrimClipCommand extends CommandFields {
+  readonly type: "trim-clip"
+  readonly clipId: string
+  readonly edge: "head" | "tail"
+  readonly frame: number
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
-  CreateProjectCommand | ImportSourceCommand | AddClipCommand | RelinkSourceCommand
+  | CreateProjectCommand
+  | ImportSourceCommand
+  | AddClipCommand
+  | RelinkSourceCommand
+  | TrimClipCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).

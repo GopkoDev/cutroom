@@ -9,3 +9,4 @@ export { importCommands, FIRST_TRACK_NAME, type ImportRequest } from "./commands
 // Re-exported so a caller can name the type in `CommandResult` — and hold an undo stack — without
 // taking a direct dependency on Immer.
 export type { Patch } from "immer"
+export * from "./editing"

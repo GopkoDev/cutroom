@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/timebase.ts", "packages/model/src/editing/limit
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T004 — Add wholeFramesIn, the trimRange rule and the trim-clip command
 

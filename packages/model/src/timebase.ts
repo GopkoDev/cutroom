@@ -252,6 +252,22 @@ export function framesForDuration(timebase: Timebase, duration: Rational): numbe
 }
 
 /**
+ * How many whole Frames fit in a duration: the opposite rounding of {@link framesForDuration}, which
+ * counts a trailing partial Frame. This answers "how far back can a Clip reach before the Source's
+ * beginning", where a partial Frame of media in front of the Source is no Frame at all. 10 s at
+ * 30000/1001 is 299.7 Frame-lengths, so 299 Frames fit; when the division is exact the two
+ * functions agree. Exact integers throughout, floored by BigInt division.
+ */
+export function wholeFramesIn(timebase: Timebase, duration: Rational): number {
+  assertRatio(timebase, "wholeFramesIn", "Timebase", 1)
+  assertRatio(duration, "wholeFramesIn", "duration", 0)
+
+  const covered = BigInt(duration.numerator) * BigInt(timebase.numerator)
+  const perFrame = BigInt(duration.denominator) * BigInt(timebase.denominator)
+  return toSafeNumber(covered / perFrame, "wholeFramesIn", "Frame count")
+}
+
+/**
  * Where a Project Frame lands inside a Source, in the Source's own timescale, as an exact ratio of
  * seconds:
  *

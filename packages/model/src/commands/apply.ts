@@ -32,7 +32,8 @@ import { enablePatches, produceWithPatches, type Draft, type Patch } from "immer
 
 import { isTimestamp } from "../document/parse"
 import { CURRENT_SCHEMA_VERSION, type Clip, type Project } from "../document/types"
-import type { Rational } from "../timebase"
+import { trimRefusal } from "../editing/limits"
+import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
 
 import type {
   AddClipCommand,
@@ -41,6 +42,7 @@ import type {
   ImportSourceCommand,
   RefusalReason,
   RelinkSourceCommand,
+  TrimClipCommand,
 } from "./index"
 
 // Immer generates patches only when asked to; this is the ask, and it is idempotent.
@@ -339,6 +341,74 @@ function relinkSource(project: Project, command: RelinkSourceCommand): CommandRe
   })
 }
 
+function trimClip(project: Project, command: TrimClipCommand): CommandResult {
+  expectStamp(command)
+  expectIdentifier(command.type, command.clipId, "clipId")
+  if (command.edge !== "head" && command.edge !== "tail") {
+    refuse(command.type, "invalid", `edge must be "head" or "tail", got ${String(command.edge)}`)
+  }
+  // Not `expectWhole(…, 0, …)`: a Frame before the Timeline's start is a whole number the rule
+  // refuses with its own reason, not a malformed command.
+  if (!Number.isSafeInteger(command.frame)) {
+    refuse(command.type, "invalid", `frame must be a whole number, got ${String(command.frame)}`)
+  }
+
+  let trackIndex = -1
+  let clipIndex = -1
+  for (const [t, track] of project.timeline.tracks.entries()) {
+    const c = track.clips.findIndex((existing) => existing.id === command.clipId)
+    if (c !== -1) {
+      trackIndex = t
+      clipIndex = c
+      break
+    }
+  }
+  const clip = project.timeline.tracks[trackIndex]?.clips[clipIndex]
+  if (clip === undefined) {
+    refuse(
+      command.type,
+      "unknown-clip",
+      `no Clip on the Timeline carries the id ${JSON.stringify(command.clipId)}`
+    )
+  }
+
+  // The rule decides, so the command is refused exactly when `trimRange` says no.
+  const reason = trimRefusal(project, command.clipId, command.edge, command.frame)
+  if (reason !== null) {
+    refuse(
+      command.type,
+      reason,
+      `the ${command.edge} cannot go to Frame ${command.frame} — see trimRange for the Frames it can`
+    )
+  }
+
+  const current = command.edge === "head" ? clip.startFrame : clip.startFrame + clip.durationFrames
+  if (command.frame === current) return { project, patches: [], inversePatches: [] }
+
+  return write(project, (draft) => {
+    const target = draft.timeline.tracks[trackIndex]?.clips[clipIndex]
+    if (target === undefined) return
+    if (command.edge === "tail") {
+      target.durationFrames = command.frame - clip.startFrame
+    } else {
+      // The In-point moves only through `frameToSourceTime` (ADR 0018): later by n Frames is
+      // exact addition; earlier is exact subtraction of n Frames from the In-point.
+      const moved = command.frame - clip.startFrame
+      target.sourceInPoint =
+        moved > 0
+          ? frameToSourceTime(project.timebase, clip.sourceInPoint, moved)
+          : sourceTimeBefore(
+              clip.sourceInPoint,
+              frameToSourceTime(project.timebase, { numerator: 0, denominator: 1 }, -moved)
+            )
+      target.startFrame = command.frame
+      target.durationFrames = clip.startFrame + clip.durationFrames - command.frame
+    }
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -372,6 +442,8 @@ export function applyCommand(project: Project | null, command: Command): Command
       return addClip(requireProject(project, command), command)
     case "relink-source":
       return relinkSource(requireProject(project, command), command)
+    case "trim-clip":
+      return trimClip(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(

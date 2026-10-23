@@ -11,7 +11,7 @@
 | T001 | Diagnose and fix the flaky engine-worker e2e check before any feature work | tests | Dmytro Hopko | M | — | done | COMMIT |
 | T002 | Give CommandError a machine-readable refusal reason across every existing refusal | domain | Dmytro Hopko | S | — | done | COMMIT |
 | T003 | Refuse Clips outside their Source and a Timeline with no Track when a Project loads | domain | Dmytro Hopko | S | — | done | COMMIT |
-| T004 | Add wholeFramesIn, the trimRange rule and the trim-clip command | domain | Dmytro Hopko | M | T002 | todo | — |
+| T004 | Add wholeFramesIn, the trimRange rule and the trim-clip command | domain | Dmytro Hopko | M | T002 | done | COMMIT |
 | T005 | Add the splitTargets rule and the split-clips command | domain | Dmytro Hopko | S | T004 | todo | — |
 | T006 | Add the checkMove placement rule and the move-clips command | domain | Dmytro Hopko | M | T005 | todo | — |
 | T007 | Add the rippleShifts rule and the delete-clips command, plain and ripple | domain | Dmytro Hopko | S | T006 | todo | — |
