@@ -192,7 +192,7 @@ Traceability context:
 
 **Given** a Clip that already shows its Source from the Source's first Frame, or up to its last
 **When** the User drags that end further out
-**Then** the end stops at the Source's own beginning or end and goes no further, because a Clip can show only what its Source holds
+**Then** the end stops at the Source's own beginning or end and goes no further, because a Clip can show only what its Source holds. The Source's beginning is its container time 0 and its end is the duration recorded at import (ADR 0018). For a file whose first picture is stamped later than 0, a head Trim can reach that short stretch before it, where the first picture shows (owner, 2026-10-23)
 
 ### AC-03 (US-01) — domain invariant
 
