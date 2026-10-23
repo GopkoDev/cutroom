@@ -40,6 +40,8 @@ import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
 
 import type {
   AddClipCommand,
+  AddTrackCommand,
+  RemoveTrackCommand,
   Command,
   CreateProjectCommand,
   DeleteClipsCommand,
@@ -51,6 +53,7 @@ import type {
   SplitClipsCommand,
   TrimClipCommand,
 } from "./index"
+import { MAX_VIDEO_TRACKS } from "./index"
 
 // Immer generates patches only when asked to; this is the ask, and it is idempotent.
 enablePatches()
@@ -687,6 +690,51 @@ function duplicateClips(project: Project, command: DuplicateClipsCommand): Comma
   })
 }
 
+function addTrack(project: Project, command: AddTrackCommand): CommandResult {
+  expectStamp(command)
+  expectIdentifier(command.type, command.track.id, "track.id")
+  if (project.timeline.tracks.some((existing) => existing.id === command.track.id)) {
+    refuse(
+      command.type,
+      "duplicate-id",
+      `a Track with the id ${JSON.stringify(command.track.id)} is already in this Project — ids are never reused`
+    )
+  }
+  if (project.timeline.tracks.length >= MAX_VIDEO_TRACKS) {
+    refuse(command.type, "track-limit", `a Project holds at most ${MAX_VIDEO_TRACKS} video Tracks`)
+  }
+  return write(project, (draft) => {
+    // The end of the list is the top of the stack.
+    draft.timeline.tracks.push({
+      id: command.track.id,
+      kind: "video",
+      name: command.track.name,
+      clips: [],
+    })
+    draft.modifiedAt = command.at
+  })
+}
+
+function removeTrack(project: Project, command: RemoveTrackCommand): CommandResult {
+  expectStamp(command)
+  const index = project.timeline.tracks.findIndex((track) => track.id === command.trackId)
+  if (index === -1) {
+    refuse(
+      command.type,
+      "unknown-track",
+      `no Track in this Project carries the id ${JSON.stringify(command.trackId)}`
+    )
+  }
+  if (project.timeline.tracks.length <= 1) {
+    refuse(command.type, "last-track", "a Project always keeps at least one Track")
+  }
+  return write(project, (draft) => {
+    draft.timeline.tracks.splice(index, 1)
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -730,6 +778,10 @@ export function applyCommand(project: Project | null, command: Command): Command
       return deleteClips(requireProject(project, command), command)
     case "duplicate-clips":
       return duplicateClips(requireProject(project, command), command)
+    case "add-track":
+      return addTrack(requireProject(project, command), command)
+    case "remove-track":
+      return removeTrack(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(

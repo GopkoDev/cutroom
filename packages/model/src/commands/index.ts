@@ -34,9 +34,8 @@ interface CommandFields {
  * Brings a Project into being. Applied to no Project at all (`null`), so its inverse is simply
  * "there is no Project again".
  *
- * It carries the first Track, because this slice has exactly one video Track (data-model.md) and
- * there is no `add-track` command to make one — so the Track is born with the Project, and its id
- * comes from the caller like every other id.
+ * It carries the first Track: that Track is born with the Project, and its id comes from the
+ * caller like every other id. `add-track` adds the second.
  */
 export interface CreateProjectCommand extends CommandFields {
   readonly type: "create-project"
@@ -143,6 +142,25 @@ export interface DuplicateClipsCommand extends CommandFields {
   readonly copies: readonly { readonly clipId: string; readonly newClipId: string }[]
 }
 
+/**
+ * Adds an empty video Track on top of the stack (the end of the Track list), which draws above the
+ * Tracks below it. The caller supplies its id and name. Refused once the Project already has
+ * `MAX_VIDEO_TRACKS` Tracks, or if the id is in use.
+ */
+export interface AddTrackCommand extends CommandFields {
+  readonly type: "add-track"
+  readonly track: { readonly id: string; readonly name: string }
+}
+
+/**
+ * Removes a Track together with its Clips; the Timeline shrinks to the Clips that remain. Refused
+ * for the only Track a Project has. Undo restores the Track and every Clip on it in one step.
+ */
+export interface RemoveTrackCommand extends CommandFields {
+  readonly type: "remove-track"
+  readonly trackId: string
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
   | CreateProjectCommand
@@ -154,6 +172,8 @@ export type Command =
   | MoveClipsCommand
   | DeleteClipsCommand
   | DuplicateClipsCommand
+  | AddTrackCommand
+  | RemoveTrackCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).

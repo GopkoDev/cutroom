@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/commands/index.ts", "packages/model/src/command
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T009 — Add the add-track and remove-track commands with the two-Track limit
 

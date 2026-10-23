@@ -188,7 +188,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T009-add-track-and-remove-track.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T010",
