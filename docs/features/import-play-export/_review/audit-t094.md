@@ -1,5 +1,7 @@
 # T094 audit: did the standing rule hold?
 
+> **Migrated record.** This is the Spec Kit file `specs/001-import-play-export/audit-t094.md`, moved unchanged into SDD's feature folder as a review record (the T094 audit). References inside it to other Spec Kit files mean those files as they stood at `a49c7f8`. Where its content lives now: Spec Kit `spec.md` FR-/SC- ids → [spec.md](../spec.md) §5 traceability table and §6; `plan.md` and `research.md` → [sad.md](../sad.md); `decisions.md` → spec §1 and sad.md §4/§8/§11; `tasks.md` → [tasks/](../tasks/_epic.md) (task ids unchanged); `quickstart.md` and `validation.md` → [_evidence/](../_evidence/quickstart.md); `.specify/memory/constitution.md` → [docs/constitution.md](../../../constitution.md).
+
 Audited 2026-10-23 against `main` at `34d6197` (Phases 1–5). The rule (constitution, Development
 Workflow; tasks.md, "Implementation strategy"): a decision that is **hard to reverse, surprising
 without context, and the result of a real trade-off** gets an ADR *before* the code depending on

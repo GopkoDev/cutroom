@@ -1,5 +1,7 @@
 # Failures the user can hit (T093)
 
+> **Migrated record.** This is the Spec Kit file `specs/001-import-play-export/failures.md`, moved unchanged into SDD's feature folder as supporting evidence (the T093 failure inventory). References inside it to other Spec Kit files mean those files as they stood at `a49c7f8`. Where its content lives now: Spec Kit `spec.md` FR-/SC- ids → [spec.md](../spec.md) §5 traceability table and §6; `plan.md` and `research.md` → [sad.md](../sad.md); `decisions.md` → spec §1 and sad.md §4/§8/§11; `tasks.md` → [tasks/](../tasks/_epic.md) (task ids unchanged); `quickstart.md` and `validation.md` → [_evidence/](../_evidence/quickstart.md); `.specify/memory/constitution.md` → [docs/constitution.md](../../../constitution.md).
+
 Every way this slice can fail in front of the user, what they are told, what they are offered, and
 the test that holds it there. The rule each row follows (Principle V; spec edge cases; FR-003,
 FR-018, FR-020–FR-024):

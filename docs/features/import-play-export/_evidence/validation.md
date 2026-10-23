@@ -1,5 +1,7 @@
 # Validation: Import, Play, Export (T096)
 
+> **Migrated record.** This is the Spec Kit file `specs/001-import-play-export/validation.md`, moved unchanged into SDD's feature folder as supporting evidence (the T096 walk). References inside it to other Spec Kit files mean those files as they stood at `a49c7f8`. Where its content lives now: Spec Kit `spec.md` FR-/SC- ids → [spec.md](../spec.md) §5 traceability table and §6; `plan.md` and `research.md` → [sad.md](../sad.md); `decisions.md` → spec §1 and sad.md §4/§8/§11; `tasks.md` → [tasks/](../tasks/_epic.md) (task ids unchanged); `quickstart.md` and `validation.md` → [_evidence/](../_evidence/quickstart.md); `.specify/memory/constitution.md` → [docs/constitution.md](../../../constitution.md).
+
 The manual list in [quickstart.md](./quickstart.md), walked end to end on 2026-10-23, with each
 step done in real Google Chrome through the editor's own UI wherever a machine could do it. This
 file says what was done for each step, how, what it measured, and whether it passed. What only a

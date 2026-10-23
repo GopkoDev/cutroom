@@ -1,5 +1,7 @@
 # Resource lifetimes and memory trace (T090)
 
+> **Migrated record.** This is the Spec Kit file `specs/001-import-play-export/memory-trace.md`, moved unchanged into SDD's feature folder as supporting evidence (T090). References inside it to other Spec Kit files mean those files as they stood at `a49c7f8`. Where its content lives now: Spec Kit `spec.md` FR-/SC- ids → [spec.md](../spec.md) §5 traceability table and §6; `plan.md` and `research.md` → [sad.md](../sad.md); `decisions.md` → spec §1 and sad.md §4/§8/§11; `tasks.md` → [tasks/](../tasks/_epic.md) (task ids unchanged); `quickstart.md` and `validation.md` → [_evidence/](../_evidence/quickstart.md); `.specify/memory/constitution.md` → [docs/constitution.md](../../../constitution.md).
+
 Evidence for T090: every decoded picture and sample the engine touches is closed, every pooled
 canvas is released, and every Mediabunny `Input`, sink, iterator, decoder and encoder is torn down
 on the paths that should end it. The method is a static audit of `packages/engine/src` against

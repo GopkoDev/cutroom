@@ -1,0 +1,1546 @@
+{
+  "slug": "import-play-export",
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Initialise the git repository at the Cutroom root so `specs/`, `docs/`, `.specify/`, `.claude/`, `packages/`…",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "."
+      ],
+      "file": "docs/features/import-play-export/tasks/T001-initialise-git-repository-cutroom-root-specs.md",
+      "status": "done"
+    },
+    {
+      "id": "T002",
+      "title": "Create the pnpm workspace at the root",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "pnpm-workspace.yaml",
+        "package.json"
+      ],
+      "file": "docs/features/import-play-export/tasks/T002-create-pnpm-workspace-root.md",
+      "status": "done"
+    },
+    {
+      "id": "T003",
+      "title": "Bring the existing Vite app in as `apps/editor`, keeping its Vite, Tailwind and shadcn configuration",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "apps/editor/"
+      ],
+      "file": "docs/features/import-play-export/tasks/T003-bring-existing-vite-app-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T004",
+      "title": "Move `CONTEXT.md` and the ADRs out of the app and up to the repository root, since they describe the whole…",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "CONTEXT.md",
+        "docs/adr/"
+      ],
+      "file": "docs/features/import-play-export/tasks/T004-move-context-md-adrs-out-app.md",
+      "status": "done"
+    },
+    {
+      "id": "T005",
+      "title": "Create `tsconfig.base.json` at the root with ES2023, `moduleResolution",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "tsconfig.base.json",
+        "tsconfig.json"
+      ],
+      "file": "docs/features/import-play-export/tasks/T005-create-tsconfig-base-json-root-es2023.md",
+      "status": "done"
+    },
+    {
+      "id": "T006",
+      "title": "Create the `packages/model` package skeleton (`package.json`, `tsconfig.json`, `src/index.ts`) with no…",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "packages/model/"
+      ],
+      "file": "docs/features/import-play-export/tasks/T006-create-packages-model-package-skeleton-package.md",
+      "status": "done"
+    },
+    {
+      "id": "T007",
+      "title": "Create the `packages/engine` package skeleton with `mediabunny` and `pixi.js` as its only runtime dependencies",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "packages/engine/"
+      ],
+      "file": "docs/features/import-play-export/tasks/T007-create-packages-engine-package-skeleton-mediabunny.md",
+      "status": "done"
+    },
+    {
+      "id": "T008",
+      "title": "Add `zustand`, `immer` and `idb` to `apps/editor`, and wire it to `@cutroom/model` and `@cutroom/engine` via…",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "apps/editor/package.json"
+      ],
+      "file": "docs/features/import-play-export/tasks/T008-add-zustand-immer-idb-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T009",
+      "title": "Configure ESLint and Prettier at the root, including a rule that forbids importing from outside the…",
+      "layer": "wiring",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "eslint.config.js",
+        ".prettierrc",
+        "eslint-rules/no-import-outside-repo.js"
+      ],
+      "file": "docs/features/import-play-export/tasks/T009-configure-eslint-prettier-root-including-rule.md",
+      "status": "done"
+    },
+    {
+      "id": "T010",
+      "title": "Add `scripts/check-docs.mjs` and wire it into `pnpm lint` — machine-checks the invariants that kept…",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "scripts/check-docs.mjs",
+        "package.json"
+      ],
+      "file": "docs/features/import-play-export/tasks/T010-add-scripts-check-docs-mjs-wire.md",
+      "status": "done"
+    },
+    {
+      "id": "T011",
+      "title": "Configure Vitest for `packages/model` with a node environment and no DOM shims, so a browser API used there…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "packages/model/vitest.config.ts",
+        "packages/model/test/environment.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T011-configure-vitest-packages-model-node-environment.md",
+      "status": "done"
+    },
+    {
+      "id": "T012",
+      "title": "Configure Playwright in `apps/editor/e2e/` to run against Chromium only, with permissions for the File System…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "apps/editor/playwright.config.ts",
+        "apps/editor/e2e/harness.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T012-configure-playwright-apps-editor-e2e-run.md",
+      "status": "done"
+    },
+    {
+      "id": "T013",
+      "title": "Write `scripts/make-fixtures.ts` producing the fixtures listed in quickstart.md (`sync-1080p30.mp4`,…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "scripts/make-fixtures.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T013-write-scripts-make-fixtures-ts-producing.md",
+      "status": "done"
+    },
+    {
+      "id": "T014",
+      "title": "Name the reference machine in quickstart.md — the exact CPU, GPU, RAM and OS that SC-004 and SC-005 are…",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 1, commits 35a3596, f554804, 78604a6, d8af2fe, 565b695).",
+      "files_hint": [
+        "docs/features/import-play-export/_evidence/quickstart.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T014-name-reference-machine-quickstart-md-exact.md",
+      "status": "done"
+    },
+    {
+      "id": "T015",
+      "title": "Implement the Timebase module in `packages/model/src/timebase.ts`",
+      "layer": "domain",
+      "deps": [],
+      "acs": [
+        "AC-06",
+        "AC-11"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/timebase.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T015-implement-timebase-module-packages-model-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T016",
+      "title": "Write Timebase unit tests in `packages/model/test/timebase.test.ts` covering exact-Frame, half-Frame either…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [
+        "AC-11"
+      ],
+      "dod": "Done as recorded: `timebase.test.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "packages/model/test/timebase.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T016-write-timebase-unit-tests-packages-model.md",
+      "status": "done"
+    },
+    {
+      "id": "T017",
+      "title": "Define the Project document types in `packages/model/src/document/types.ts` per data-model.md (Project,…",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [
+        "AC-06"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/document/types.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T017-define-project-document-types-packages-model.md",
+      "status": "done"
+    },
+    {
+      "id": "T018",
+      "title": "Implement `parseProject` in `packages/model/src/document/parse.ts` rejecting non-integer Frames, overlapping…",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [
+        "AC-06"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/document/parse.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T018-implement-parseproject-packages-model-src-document.md",
+      "status": "done"
+    },
+    {
+      "id": "T019",
+      "title": "Implement the migration chain in `packages/model/src/document/migrate.ts` with `CURRENT_SCHEMA_VERSION = 1`,…",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/document/migrate.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T019-implement-migration-chain-packages-model-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T020",
+      "title": "Write document tests in `packages/model/test/document.test.ts`",
+      "layer": "tests",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded: `document.test.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "packages/model/test/document.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T020-write-document-tests-packages-model-test.md",
+      "status": "done"
+    },
+    {
+      "id": "T021",
+      "title": "Implement the command reducer in `packages/model/src/commands/apply.ts` returning `{ project, patches,…",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/commands/apply.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T021-implement-command-reducer-packages-model-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T022",
+      "title": "Define the commands this slice needs in `packages/model/src/commands/index.ts`",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/commands/index.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T022-define-commands-this-slice-needs-packages.md",
+      "status": "done"
+    },
+    {
+      "id": "T023",
+      "title": "Write reducer tests in `packages/model/test/commands.test.ts` asserting that every command's inverse patches…",
+      "layer": "tests",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded: `commands.test.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "packages/model/test/commands.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T023-write-reducer-tests-packages-model-test.md",
+      "status": "done"
+    },
+    {
+      "id": "T024",
+      "title": "Implement `projectScene` in `packages/model/src/scene.ts` producing `SceneClip[]` — not `SceneLayer` and not…",
+      "layer": "domain",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/model/src/scene.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T024-implement-projectscene-packages-model-src-scene.md",
+      "status": "done"
+    },
+    {
+      "id": "T025",
+      "title": "Write Scene tests in `packages/model/test/scene.test.ts` asserting determinism and that a non-visual edit…",
+      "layer": "tests",
+      "deps": [
+        "T015"
+      ],
+      "acs": [],
+      "dod": "Done as recorded: `scene.test.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "packages/model/test/scene.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T025-write-scene-tests-packages-model-test.md",
+      "status": "done"
+    },
+    {
+      "id": "T026",
+      "title": "Implement the IndexedDB schema in `apps/editor/src/storage/db.ts`",
+      "layer": "infra",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/storage/db.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T026-implement-indexeddb-schema-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T027",
+      "title": "Implement the Project store in `apps/editor/src/storage/projects.ts`",
+      "layer": "infra",
+      "deps": [],
+      "acs": [
+        "AC-32"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/storage/projects.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T027-implement-project-store-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T028",
+      "title": "Implement the Source link table in `apps/editor/src/storage/source-links.ts`",
+      "layer": "infra",
+      "deps": [],
+      "acs": [
+        "AC-08",
+        "AC-33",
+        "AC-35"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/storage/source-links.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T028-implement-source-link-table-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T029",
+      "title": "Define the protocol types in `packages/engine/src/protocol.ts` exactly as specified in…",
+      "layer": "ports",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/engine/src/protocol.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T029-define-protocol-types-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T030",
+      "title": "Implement the worker entry in `packages/engine/src/worker.ts`",
+      "layer": "ports",
+      "deps": [
+        "T029"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/engine/src/worker.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T030-implement-worker-entry-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T031",
+      "title": "Initialise PixiJS in `packages/engine/src/compose/renderer.ts`",
+      "layer": "app",
+      "deps": [
+        "T029"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/engine/src/compose/renderer.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T031-initialise-pixijs-packages-engine-src-compose.md",
+      "status": "done"
+    },
+    {
+      "id": "T032",
+      "title": "Implement the runtime capability probe in `packages/engine/src/capabilities.ts` using `canEncode` /…",
+      "layer": "app",
+      "deps": [
+        "T029"
+      ],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "packages/engine/src/capabilities.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T032-implement-runtime-capability-probe-packages-engine.md",
+      "status": "done"
+    },
+    {
+      "id": "T033",
+      "title": "Implement the typed client in `apps/editor/src/engine-client/index.ts`",
+      "layer": "ports",
+      "deps": [
+        "T029"
+      ],
+      "acs": [
+        "AC-17"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/engine-client/index.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T033-implement-typed-client-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T034",
+      "title": "Create the Zustand store in `apps/editor/src/store/index.ts` wrapping `applyCommand`, with a transaction API…",
+      "layer": "app",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/store/index.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T034-create-zustand-store-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T035",
+      "title": "Implement the unsupported-browser gate in `apps/editor/src/ui/CapabilityGate.tsx`",
+      "layer": "ui",
+      "deps": [],
+      "acs": [
+        "AC-39"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/ui/CapabilityGate.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T035-implement-unsupported-browser-gate-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T036",
+      "title": "Build the three-panel application shell in `apps/editor/src/ui/EditorLayout.tsx` (Source list, Preview,…",
+      "layer": "ui",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/ui/EditorLayout.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T036-build-three-panel-application-shell-apps.md",
+      "status": "done"
+    },
+    {
+      "id": "T037",
+      "title": "Build the Project list in `apps/editor/src/ui/ProjectList.tsx`",
+      "layer": "ui",
+      "deps": [
+        "T027"
+      ],
+      "acs": [
+        "AC-32"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 2, commits 748e8a6, 0cf95a9, bd0cf89, 044f944, ee962d5, c9f21d2, f1a8687, 6103c29).",
+      "files_hint": [
+        "apps/editor/src/ui/ProjectList.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T037-build-project-list-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T038",
+      "title": "Implement the Source list in `apps/editor/src/ui/SourcesPanel.tsx` — named for what it holds, since…",
+      "layer": "ui",
+      "deps": [
+        "T034",
+        "T035",
+        "T036"
+      ],
+      "acs": [
+        "AC-01",
+        "AC-08"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/ui/SourcesPanel.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T038-implement-source-list-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T039",
+      "title": "Implement `attach-source` in `packages/engine/src/sources/attach.ts`",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-01",
+        "AC-12"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/sources/attach.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T039-implement-attach-source-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T040",
+      "title": "Implement refusal in the same module",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-09",
+        "AC-10"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/sources/attach.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T040-implement-refusal-same-module.md",
+      "status": "done"
+    },
+    {
+      "id": "T041",
+      "title": "Implement Project creation on first import as a pure command sequence in…",
+      "layer": "domain",
+      "deps": [
+        "T021",
+        "T022"
+      ],
+      "acs": [
+        "AC-01",
+        "AC-02",
+        "AC-03"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/model/src/commands/import.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T041-implement-project-creation-first-import-pure.md",
+      "status": "done"
+    },
+    {
+      "id": "T042",
+      "title": "Write a unit test in `packages/model/test/import.test.ts` for the adopt-Timebase-and-add-Clip command…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [
+        "AC-02",
+        "AC-03"
+      ],
+      "dod": "Done as recorded: `import.test.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "packages/model/test/import.test.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T042-write-unit-test-packages-model-test.md",
+      "status": "done"
+    },
+    {
+      "id": "T043",
+      "title": "Implement per-Source `CanvasSink` management in `packages/engine/src/sources/canvas-sink.ts`, sized to the…",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-04"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/sources/canvas-sink.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T043-implement-per-source-canvassink-management-packages.md",
+      "status": "done"
+    },
+    {
+      "id": "T044",
+      "title": "Implement the scrub render path in `packages/engine/src/playback/scrub.ts`",
+      "layer": "app",
+      "deps": [
+        "T015",
+        "T043"
+      ],
+      "acs": [
+        "AC-04"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/playback/scrub.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T044-implement-scrub-render-path-packages-engine.md",
+      "status": "done"
+    },
+    {
+      "id": "T045",
+      "title": "Implement Frame-to-Source-time mapping in `packages/engine/src/playback/mapping.ts` as a thin call into…",
+      "layer": "app",
+      "deps": [
+        "T015"
+      ],
+      "acs": [
+        "AC-11"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/playback/mapping.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T045-implement-frame-source-time-mapping-packages.md",
+      "status": "done"
+    },
+    {
+      "id": "T046",
+      "title": "Draw one `SceneClip` in `packages/engine/src/compose/scene-clip.ts`",
+      "layer": "app",
+      "deps": [
+        "T031"
+      ],
+      "acs": [
+        "AC-07"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/compose/scene-clip.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T046-draw-one-sceneclip-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T047",
+      "title": "Render nothing where no Clip covers the Frame, so the Preview goes empty past the end of the Clip instead of…",
+      "layer": "app",
+      "deps": [
+        "T031"
+      ],
+      "acs": [
+        "AC-05"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "packages/engine/src/compose/"
+      ],
+      "file": "docs/features/import-play-export/tasks/T047-render-nothing-where-no-clip-covers.md",
+      "status": "done"
+    },
+    {
+      "id": "T048",
+      "title": "Build the Timeline in `apps/editor/src/ui/Timeline.tsx`",
+      "layer": "ui",
+      "deps": [
+        "T035",
+        "T036"
+      ],
+      "acs": [
+        "AC-04",
+        "AC-06"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/ui/Timeline.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T048-build-timeline-apps-editor-src-ui.md",
+      "status": "done"
+    },
+    {
+      "id": "T049",
+      "title": "Wire the Playhead to `render-frame` with `reason",
+      "layer": "ports",
+      "deps": [],
+      "acs": [
+        "AC-04"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/engine-client/index.ts",
+        "apps/editor/src/ui/Timeline.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T049-wire-playhead-render-frame-reason.md",
+      "status": "done"
+    },
+    {
+      "id": "T050",
+      "title": "Display the timecode in `apps/editor/src/ui/TopBar.tsx`, derived from the Frame through the Timebase module…",
+      "layer": "ui",
+      "deps": [],
+      "acs": [
+        "AC-06"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/ui/TopBar.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T050-display-timecode-apps-editor-src-ui.md",
+      "status": "done"
+    },
+    {
+      "id": "T051",
+      "title": "Implement Source status as a plain store action outside the undo history in…",
+      "layer": "app",
+      "deps": [
+        "T034"
+      ],
+      "acs": [
+        "AC-33",
+        "AC-34",
+        "AC-36",
+        "AC-37"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/store/source-status.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T051-implement-source-status-plain-store-action.md",
+      "status": "done"
+    },
+    {
+      "id": "T052",
+      "title": "Build the Relink flow in `apps/editor/src/ui/RelinkPrompt.tsx`",
+      "layer": "ui",
+      "deps": [],
+      "acs": [
+        "AC-33",
+        "AC-34",
+        "AC-35"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 3, commits 7f5efea).",
+      "files_hint": [
+        "apps/editor/src/ui/RelinkPrompt.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T052-build-relink-flow-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T053",
+      "title": "Write the Playwright test `apps/editor/e2e/import-and-scrub.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-04",
+        "AC-11"
+      ],
+      "dod": "Done as recorded: `import-and-scrub.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/import-and-scrub.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T053-write-playwright-test-apps-editor-e2e.md",
+      "status": "done"
+    },
+    {
+      "id": "T054",
+      "title": "Write `apps/editor/e2e/refuses-unusable-files.spec.ts` covering all three refusals the spec names —…",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-09",
+        "AC-10"
+      ],
+      "dod": "Done as recorded: `refuses-unusable-files.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/refuses-unusable-files.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T054-write-apps-editor-e2e-refuses-unusable.md",
+      "status": "done"
+    },
+    {
+      "id": "T055",
+      "title": "Write `apps/editor/e2e/long-source-imports-promptly.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-12"
+      ],
+      "dod": "Done as recorded: `long-source-imports-promptly.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/long-source-imports-promptly.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T055-write-apps-editor-e2e-long-source.md",
+      "status": "done"
+    },
+    {
+      "id": "T056",
+      "title": "Write `apps/editor/e2e/reopen-and-relink.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-32",
+        "AC-33",
+        "AC-34"
+      ],
+      "dod": "Done as recorded: `reopen-and-relink.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/reopen-and-relink.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T056-write-apps-editor-e2e-reopen-relink.md",
+      "status": "done"
+    },
+    {
+      "id": "T057",
+      "title": "Write `apps/editor/e2e/source-vanishes-mid-session.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-37"
+      ],
+      "dod": "Done as recorded: `source-vanishes-mid-session.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/source-vanishes-mid-session.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T057-write-apps-editor-e2e-source-vanishes.md",
+      "status": "done"
+    },
+    {
+      "id": "T058",
+      "title": "Assert in `apps/editor/e2e/undo-does-not-touch-status.spec.ts` that undo after an import restores the…",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-38"
+      ],
+      "dod": "Done as recorded: `undo-does-not-touch-status.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/undo-does-not-touch-status.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T058-assert-apps-editor-e2e-undo-does.md",
+      "status": "done"
+    },
+    {
+      "id": "T059",
+      "title": "Implement audio decode in `packages/engine/src/sources/audio.ts` using `AudioSampleSink`, emitting…",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-13",
+        "AC-19"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "packages/engine/src/sources/audio.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T059-implement-audio-decode-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T060",
+      "title": "Implement the Web Audio graph in `apps/editor/src/audio/graph.ts`",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-13",
+        "AC-16"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/graph.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T060-implement-web-audio-graph-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T061",
+      "title": "Implement the master clock in `apps/editor/src/audio/clock.ts`",
+      "layer": "app",
+      "deps": [
+        "T015"
+      ],
+      "acs": [
+        "AC-13",
+        "AC-17",
+        "AC-18"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/clock.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T061-implement-master-clock-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T062",
+      "title": "Drive the Preview from the clock in `apps/editor/src/audio/transport.ts`",
+      "layer": "app",
+      "deps": [
+        "T060",
+        "T061"
+      ],
+      "acs": [
+        "AC-13",
+        "AC-17"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/transport.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T062-drive-preview-clock-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T063",
+      "title": "Implement streaming playback in `packages/engine/src/playback/stream.ts`",
+      "layer": "app",
+      "deps": [
+        "T043"
+      ],
+      "acs": [
+        "AC-13"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "packages/engine/src/playback/stream.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T063-implement-streaming-playback-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T064",
+      "title": "Implement request coalescing and Frame dropping in `packages/engine/src/playback/scheduler.ts`",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-17"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "packages/engine/src/playback/scheduler.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T064-implement-request-coalescing-frame-dropping-packages.md",
+      "status": "done"
+    },
+    {
+      "id": "T065",
+      "title": "Implement transport controls in `apps/editor/src/ui/TopBar.tsx` (play/stop button and spacebar), starting…",
+      "layer": "ui",
+      "deps": [],
+      "acs": [
+        "AC-13",
+        "AC-14",
+        "AC-15"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/ui/TopBar.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T065-implement-transport-controls-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T066",
+      "title": "Handle seeking during playback",
+      "layer": "app",
+      "deps": [
+        "T060",
+        "T061"
+      ],
+      "acs": [
+        "AC-16"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/transport.ts",
+        "packages/engine/src/playback/stream.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T066-handle-seeking-during-playback.md",
+      "status": "done"
+    },
+    {
+      "id": "T067",
+      "title": "Handle a Source with no audio track",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-19"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/transport.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T067-handle-source-no-audio-track.md",
+      "status": "done"
+    },
+    {
+      "id": "T068",
+      "title": "Stop playback at the end of the Timeline rather than running into empty space (US2 scenario 6)",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-14",
+        "AC-20"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 4, commits 90b0009).",
+      "files_hint": [
+        "apps/editor/src/audio/transport.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T068-stop-playback-end-timeline-rather-than.md",
+      "status": "done"
+    },
+    {
+      "id": "T069",
+      "title": "Write `apps/editor/e2e/av-sync.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-18"
+      ],
+      "dod": "Done as recorded: `av-sync.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/av-sync.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T069-write-apps-editor-e2e-av-sync.md",
+      "status": "done"
+    },
+    {
+      "id": "T070",
+      "title": "Write `apps/editor/e2e/degrades-picture-not-sound.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-17"
+      ],
+      "dod": "Done as recorded: `degrades-picture-not-sound.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/degrades-picture-not-sound.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T070-write-apps-editor-e2e-degrades-picture.md",
+      "status": "done"
+    },
+    {
+      "id": "T071",
+      "title": "Write `apps/editor/e2e/scrub-latency.spec.ts` measuring time from Playhead move to `frame-rendered` on the…",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-04"
+      ],
+      "dod": "Done as recorded: `scrub-latency.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/scrub-latency.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T071-write-apps-editor-e2e-scrub-latency.md",
+      "status": "done"
+    },
+    {
+      "id": "T072",
+      "title": "Write `apps/editor/e2e/playback-rate.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-17"
+      ],
+      "dod": "Done as recorded: `playback-rate.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/playback-rate.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T072-write-apps-editor-e2e-playback-rate.md",
+      "status": "done"
+    },
+    {
+      "id": "T073",
+      "title": "Build the export dialog in `apps/editor/src/ui/ExportDialog.tsx`",
+      "layer": "ui",
+      "deps": [
+        "T032"
+      ],
+      "acs": [
+        "AC-22",
+        "AC-23"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "apps/editor/src/ui/ExportDialog.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T073-build-export-dialog-apps-editor-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T074",
+      "title": "Handle the no-audio-encoder case in the same dialog",
+      "layer": "ui",
+      "deps": [
+        "T032"
+      ],
+      "acs": [
+        "AC-27",
+        "AC-28"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "apps/editor/src/ui/ExportDialog.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T074-handle-no-audio-encoder-case-same.md",
+      "status": "done"
+    },
+    {
+      "id": "T075",
+      "title": "Implement destination selection",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-21",
+        "AC-29"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "apps/editor/src/store/export.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T075-implement-destination-selection.md",
+      "status": "done"
+    },
+    {
+      "id": "T076",
+      "title": "Freeze the Scene at export start in `apps/editor/src/store/export.ts` and send it inside `export-start`, so…",
+      "layer": "app",
+      "deps": [
+        "T034"
+      ],
+      "acs": [
+        "AC-30"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "apps/editor/src/store/export.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T076-freeze-scene-export-start-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T077",
+      "title": "Mix the audio on the main thread in `apps/editor/src/audio/offline-mix.ts` with `OfflineAudioContext`, using…",
+      "layer": "app",
+      "deps": [
+        "T060",
+        "T061"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "apps/editor/src/audio/offline-mix.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T077-mix-audio-main-thread-apps-editor.md",
+      "status": "done"
+    },
+    {
+      "id": "T078",
+      "title": "Implement the export pipeline in `packages/engine/src/export/run.ts`",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T078-implement-export-pipeline-packages-engine-src.md",
+      "status": "done"
+    },
+    {
+      "id": "T079",
+      "title": "Step the Frame loop from `fromFrame` to `toFrame`, rendering each Frame through the same `renderScene` used…",
+      "layer": "app",
+      "deps": [
+        "T015",
+        "T031",
+        "T078"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T079-step-frame-loop-fromframe-toframe-rendering.md",
+      "status": "done"
+    },
+    {
+      "id": "T080",
+      "title": "Await backpressure on every `videoSource.add()` and `audioSource.add()`, and acknowledge audio chunks with…",
+      "layer": "app",
+      "deps": [
+        "T078"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts",
+        "apps/editor/src/audio/offline-mix.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T080-await-backpressure-every-videosource-add-audiosource.md",
+      "status": "done"
+    },
+    {
+      "id": "T081",
+      "title": "Report progress as `export-progress` and render it in the dialog with elapsed and estimated remaining time…",
+      "layer": "ui",
+      "deps": [
+        "T078"
+      ],
+      "acs": [
+        "AC-24"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts",
+        "apps/editor/src/ui/ExportDialog.tsx"
+      ],
+      "file": "docs/features/import-play-export/tasks/T081-report-progress-export-progress-render-it.md",
+      "status": "done"
+    },
+    {
+      "id": "T082",
+      "title": "Implement cancellation",
+      "layer": "app",
+      "deps": [
+        "T078"
+      ],
+      "acs": [
+        "AC-25"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T082-implement-cancellation.md",
+      "status": "done"
+    },
+    {
+      "id": "T083",
+      "title": "Handle export failure — the destination becoming unwritable or the encoder erroring — by reporting…",
+      "layer": "app",
+      "deps": [
+        "T078"
+      ],
+      "acs": [
+        "AC-26"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T083-handle-export-failure-destination-becoming-unwritable.md",
+      "status": "done"
+    },
+    {
+      "id": "T084",
+      "title": "Finalize with `output.finalize()`, which closes the stream, and report `export-done` with the byte count",
+      "layer": "app",
+      "deps": [
+        "T078"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 5, commits 34d6197).",
+      "files_hint": [
+        "packages/engine/src/export/run.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T084-finalize-output-finalize-which-closes-stream.md",
+      "status": "done"
+    },
+    {
+      "id": "T085",
+      "title": "Write `apps/editor/e2e/export-fidelity.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded: `export-fidelity.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/export-fidelity.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T085-write-apps-editor-e2e-export-fidelity.md",
+      "status": "done"
+    },
+    {
+      "id": "T086",
+      "title": "Write `apps/editor/e2e/export-duration.spec.ts` asserting the exported duration equals…",
+      "layer": "tests",
+      "deps": [
+        "T013",
+        "T015"
+      ],
+      "acs": [
+        "AC-31"
+      ],
+      "dod": "Done as recorded: `export-duration.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/export-duration.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T086-write-apps-editor-e2e-export-duration.md",
+      "status": "done"
+    },
+    {
+      "id": "T087",
+      "title": "Write `apps/editor/e2e/export-cancel.spec.ts` asserting cancellation within two seconds and no complete file…",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-25"
+      ],
+      "dod": "Done as recorded: `export-cancel.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/export-cancel.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T087-write-apps-editor-e2e-export-cancel.md",
+      "status": "done"
+    },
+    {
+      "id": "T088",
+      "title": "Write `apps/editor/e2e/export-ignores-later-edits.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013",
+        "T076"
+      ],
+      "acs": [
+        "AC-30"
+      ],
+      "dod": "Done as recorded: `export-ignores-later-edits.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/export-ignores-later-edits.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T088-write-apps-editor-e2e-export-ignores.md",
+      "status": "done"
+    },
+    {
+      "id": "T089",
+      "title": "Write `apps/editor/e2e/export-throughput.spec.ts`",
+      "layer": "tests",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-21"
+      ],
+      "dod": "Done as recorded: `export-throughput.spec.ts` is in the suite and passing at the phase checkpoint.",
+      "files_hint": [
+        "apps/editor/e2e/export-throughput.spec.ts"
+      ],
+      "file": "docs/features/import-play-export/tasks/T089-write-apps-editor-e2e-export-throughput.md",
+      "status": "done"
+    },
+    {
+      "id": "T090",
+      "title": "Audit resource lifetimes across `packages/engine`",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "packages/engine/",
+        "docs/features/import-play-export/_evidence/memory-trace.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T090-audit-resource-lifetimes-across-packages-engine.md",
+      "status": "done"
+    },
+    {
+      "id": "T091",
+      "title": "Profile the compose step in isolation at 1080p and record the per-Frame budget, so later Effects work has a…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "docs/features/import-play-export/_evidence/performance-baseline.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T091-profile-compose-step-isolation-1080p-record.md",
+      "status": "done"
+    },
+    {
+      "id": "T092",
+      "title": "Measure first-Frame-after-seek on long-GOP material and record whether SC-003 holds without a scrub-quality…",
+      "layer": "tests",
+      "deps": [],
+      "acs": [
+        "AC-04"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "docs/features/import-play-export/_evidence/performance-baseline.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T092-measure-first-frame-after-seek-long.md",
+      "status": "done"
+    },
+    {
+      "id": "T093",
+      "title": "Make every failure the user can hit legible",
+      "layer": "ui",
+      "deps": [],
+      "acs": [
+        "AC-09",
+        "AC-26",
+        "AC-33",
+        "AC-34"
+      ],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "apps/editor/src/ui/failure-wording.ts",
+        "apps/editor/src/ui/Notice.tsx",
+        "docs/features/import-play-export/_evidence/failures.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T093-make-every-failure-user-can-hit.md",
+      "status": "done"
+    },
+    {
+      "id": "T094",
+      "title": "Audit that the standing rule below held",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "docs/adr/",
+        "CONTEXT.md",
+        "docs/features/import-play-export/_review/audit-t094.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T094-audit-that-standing-rule-below-held.md",
+      "status": "done"
+    },
+    {
+      "id": "T095",
+      "title": "Write `README.md` at the root",
+      "layer": "docs",
+      "deps": [],
+      "acs": [],
+      "dod": "Done as recorded in the Spec Kit note (Phase 6, commits a49c7f8).",
+      "files_hint": [
+        "README.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T095-write-readme-md-root.md",
+      "status": "done"
+    },
+    {
+      "id": "T096",
+      "title": "Walk the manual validation list in quickstart.md end to end in Chrome and record the result",
+      "layer": "tests",
+      "deps": [],
+      "acs": [
+        "AC-01",
+        "AC-31"
+      ],
+      "dod": "Every quickstart manual step walked in Chrome and recorded in validation.md, with SC-006 confirmed by a person in VLC and in QuickTime Player.",
+      "files_hint": [
+        "docs/features/import-play-export/_evidence/validation.md"
+      ],
+      "file": "docs/features/import-play-export/tasks/T096-walk-manual-validation-list-quickstart-md.md",
+      "status": "blocked"
+    }
+  ]
+}

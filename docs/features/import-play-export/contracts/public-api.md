@@ -1,4 +1,18 @@
-# Contract: `packages/model`
+---
+status: Approved
+owner: "Dmytro Hopko"
+reviewers: []
+updated_at: "2026-10-23"
+feature_size: "L"
+---
+
+# Public API — import-play-export (`packages/model`)
+
+This is the `library-sdk` surface's contract ([sad.md](../sad.md) frontmatter
+`target_surfaces`): the public signatures of `@cutroom/model`, exported from
+`packages/model/src/index.ts`. Migrated from the Spec Kit `contracts/model-api.md`, with the body
+unchanged. The drift between this contract and the code is in
+[api-sync-report.md](./api-sync-report.md).
 
 The framework-free core. Pure functions and plain data — no browser APIs, no React, no PixiJS, no
 Mediabunny. This is what the future backend will reuse to validate a Project document

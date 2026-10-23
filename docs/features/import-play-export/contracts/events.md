@@ -1,4 +1,35 @@
-# Contract: main thread ↔ engine worker
+---
+status: Approved
+owner: "Dmytro Hopko"
+reviewers: []
+updated_at: "2026-10-23"
+feature_size: "L"
+---
+
+# Events — import-play-export (main thread ↔ engine worker)
+
+This is the `worker` surface's contract ([sad.md](../sad.md) frontmatter `target_surfaces`). SDD's
+events template is shaped for a message bus. This contract is the `postMessage` protocol between
+the editor's main thread and the engine Web Worker, so it keeps its own message-by-message form
+below. The template's head is filled in here. Migrated from the Spec Kit
+`contracts/worker-protocol.md`, with the body unchanged.
+
+## Channel: `postMessage` (main thread ↔ `@cutroom/engine/worker`)
+
+- **Producer:** both directions. The editor posts `ToEngine` messages and the worker posts
+  `EngineEvent`s. Both are typed once in `packages/engine/src/protocol.ts:252-262` and
+  `packages/engine/src/protocol.ts:433-446`.
+- **Consumers:** the worker's single message switch (`packages/engine/src/worker.ts:294`). The
+  editor's typed client (`apps/editor/src/engine-client/index.ts`).
+- **Delivery:** structured-clone `postMessage`, with transfers for the canvas, PCM and the
+  writable stream. `render-frame` is a latest-wins stream: a request may be superseded and never
+  answered (invariant 3). `attach-source` and `export-start` always get exactly one reply.
+- **Ordering:** `scene` carries a monotonically increasing `revision`, and the worker ignores an
+  older one.
+- **Versioning:** none on the wire. Both ends are built from the same `protocol.ts`, so a shape
+  cannot drift between them.
+
+## Message reference (Contract: main thread ↔ engine worker)
 
 The message protocol is a real interface, not an implementation detail (ADR 0003). Everything
 here must survive `postMessage`. The worker owns pixels; the main thread owns state, sound and
