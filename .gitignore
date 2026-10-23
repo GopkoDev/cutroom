@@ -22,3 +22,6 @@ plan.html
 # SDD (Claude Code plugin sdd@sdd): per-developer settings and the implement engine's worktrees
 .claude/*.local.md
 .worktrees/
+
+# A local copy of the Lovable prototype, kept for reading only (ADR 0010, docs/reference/README.md)
+docs/reference/kino-prototype/

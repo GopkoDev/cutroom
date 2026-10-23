@@ -23,6 +23,8 @@ export default defineConfig([
     "**/playwright-report/**",
     "**/test-results/**",
     "packages/engine/test/fixtures/**",
+    // A gitignored copy of the Lovable prototype, kept for reading (docs/reference/README.md).
+    "docs/reference/kino-prototype/**",
   ]),
 
   {
@@ -32,11 +34,17 @@ export default defineConfig([
   },
 
   {
-    // ADR 0010: the prototype lives beside the repository, so the thing to block is the climb out.
+    // ADR 0010: the prototype lives beside the repository, so the thing to block is the climb out,
+    // and the gitignored copy under docs/reference/ is blocked by name.
     name: "cutroom/no-import-outside-repo",
     files: ["apps/**/*.{js,mjs,ts,tsx}", "packages/**/*.{js,mjs,ts,tsx}"],
     plugins: { cutroom: { rules: { "no-import-outside-repo": noImportOutsideRepo } } },
-    rules: { "cutroom/no-import-outside-repo": ["error", { root: repoRoot }] },
+    rules: {
+      "cutroom/no-import-outside-repo": [
+        "error",
+        { root: repoRoot, forbid: ["docs/reference/kino-prototype"] },
+      ],
+    },
   },
 
   {
