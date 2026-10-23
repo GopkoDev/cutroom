@@ -42,8 +42,8 @@ the code of `a49c7f8` on `main` (the SDD migration changed documents only).
   - `pnpm test:e2e` runs Playwright `^1.62.1` in Google Chrome.
   - `pnpm test:e2e:slow` runs the `@slow` specs (`CUTROOM_E2E_SLOW=1 playwright test --grep @slow`).
   - `pnpm typecheck` runs `tsc -b && tsc -p scripts`.
-  - `pnpm lint` runs `pnpm check:docs && eslint . && prettier --check .`. **`check:docs`
-    (`scripts/check-docs.mjs`) still reads the retired Spec Kit layout. See Constraints.**
+  - `pnpm lint` runs `pnpm check:docs && eslint . && prettier --check .`. `check:docs`
+    (`scripts/check-docs.mjs`) checks the SDD docs invariants across `docs/features/*`.
   - `pnpm fixtures` runs `node --experimental-strip-types scripts/make-fixtures.ts`.
 
 ## C4 — system as it is
@@ -75,7 +75,7 @@ C4Container
 | `@cutroom/model` | `packages/model` | domain (`src/timebase.ts`, `src/document/`, `src/commands/`, `src/scene.ts`) | `packages/model/src/index.ts:1-11` (exports map `packages/model/package.json:6-8`) | Framework-free core: rational time maths, the Project document (types, parse, migrations), the single reducer, the Scene projection. No browser APIs. |
 | `@cutroom/engine` | `packages/engine` | ports (`src/protocol.ts`, `src/worker.ts`), app (`src/sources/`, `src/compose/`, `src/playback/`, `src/export/`, `src/capabilities.ts`) | worker entry `packages/engine/src/worker.ts:294,357`; exports `.`, `./worker`, `./protocol` (`packages/engine/package.json:6-10`); main-thread export only `forwardingWritable` (`packages/engine/src/index.ts:1-3`) | The Web Worker: attach Sources, decode, PixiJS compositing on an `OffscreenCanvas`, streaming and scrub paths, export pipeline, codec capability probe. No React. |
 | `@cutroom/editor` | `apps/editor` | ui (`src/ui/`, `src/components/ui/`), app (`src/store/`, `src/audio/`), infra (`src/storage/`), ports (`src/engine-client/`) | `apps/editor/src/ui/EditorLayout.tsx:81` (panels); worker spawn `apps/editor/src/engine-client/index.ts:52,237` | The interface. Owns Project state, undo, sound and the clock. |
-| scripts | `scripts/` | tooling | root `package.json` scripts | `make-fixtures.ts` (test media via the ffmpeg CLI), `check-docs.mjs` (docs invariants, Spec Kit era). |
+| scripts | `scripts/` | tooling | root `package.json` scripts | `make-fixtures.ts` (test media via the ffmpeg CLI), `check-docs.mjs` (SDD docs invariants). |
 | eslint-rules | `eslint-rules/` | tooling | `eslint.config.js:34-40` | `no-import-outside-repo`: fails any import that resolves outside the repository root (ADR 0010). |
 
 Project references build model → engine → editor (`tsconfig.json:3-7`). The engine depends on
@@ -224,10 +224,10 @@ Platform and debt items (each cited):
 - **IndexedDB version 2 is planned as one more upgrade block** (`apps/editor/src/storage/db.ts:79`).
 - **Server sync is future work** (ADR 0007, `apps/editor/src/storage/db.ts:6`,
   `apps/editor/src/store/index.ts:9`).
-- **`scripts/check-docs.mjs` is out of date.** It reads `.specify/feature.json`, a Spec Kit
-  `tasks.md`/`plan.md`/`quickstart.md`, and the `FR-`/`SC-` identifiers. Those were retired by the
-  SDD migration, so `pnpm lint` fails at `check:docs` until the script is rewritten for
-  `docs/features/*` or removed. TODO(sdd-migration): owner decision.
+- **`pnpm check:docs` guards the SDD docs.** For every `docs/features/<slug>/` it checks the
+  `.size`/`.route` values, the `tasks.json` id sequence, deps and task files, dangling task and AC
+  references, that every AC has a task and a test-plan row, banned glossary spellings and
+  placeholders (`TODO(sdd-migration)` only warns), plus the `docs/adr/` numbering.
 - No TODO, FIXME or HACK comments exist in application source.
 
 ## Reconciliation with the authored architecture doc

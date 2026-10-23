@@ -837,7 +837,6 @@ records and [_evidence/validation.md](./_evidence/validation.md), on the referen
 | Open architectural decision: Chrome's save picker may empty an existing file when it is picked, before the overwrite guard runs | Open question | Resolve with a manual walk in a visible Chrome. If it does, warn by name before the picker can be accepted | Repo owner |
 | Open architectural decision: the time space of `sourceInPoint` (container time or time from the first sample) | Open question | Resolve with an ADR before trimming lands (the editing slice's `/sdd:design`) | Architect |
 | Open architectural decision: the intermittent `engine-worker.spec.ts` failure (one in the T096 full run) | Open question | Resolve before the next feature's `/sdd:implement`: diagnose the test race or the stale-Scene resize | Tech Lead |
-| `scripts/check-docs.mjs` still enforces the Spec Kit layout, so `pnpm lint` fails after the SDD migration | High | Rewrite it for `docs/features/*` and `tasks.json`, or drop it from `pnpm lint`. TODO(sdd-migration) | Repo owner |
 
 **Accepted debt (acceptable in v1, plan to fix later):**
 
