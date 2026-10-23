@@ -40,3 +40,10 @@ This is the project-wide glossary: the canonical terms the specs, the SAD and th
 - Export — Producing a finished media file from the whole Timeline. NOT Render, Encode, Output, Publish (_Avoid_ these words for it).
 - Export quality — One of High, Standard and Draft — a bitrate that scales with the Project's frame size — offered only if this machine can encode it when the export dialog opens. NOT Preset, Profile (_Avoid_ these words for it).
 - Render — Compositing the Timeline at a single Frame into an image. Both Preview and Export are built from Renders. NOT Draw, Paint (_Avoid_ these words for it).
+- User — The one person working in this browser on their own Projects and Sources. There are no accounts and no other roles yet; an agent or a collaborator would be a new role. NOT Editor (the app's own name), Owner, Admin, Customer (_Avoid_ these words for it).
+- Selection — The Clips the User has picked out on the Timeline, which the next edit command acts on. It belongs to the session: it is never saved and never undone. NOT Focus, Active clip, Highlight (_Avoid_ these words for it).
+- Gap — A stretch of a Track between two Clips, or before the first, where no Clip is. A Frame where every Track has a Gap renders black and silent. NOT Hole, Blank, Empty Clip (_Avoid_ these words for it).
+- Trim — Moving one end of a Clip so it shows more or less of its Source. Trimming the head moves the In-point and the start together; neither end ever moves a neighbouring Clip. NOT Resize, Crop, Cut (_Avoid_ these words for it).
+- Split — Cutting one Clip into two at a Frame, the pair showing exactly what the one did. NOT Cut, Razor, Slice (_Avoid_ these words for it).
+- Ripple delete — Removing Clips and closing the Gap they leave by pulling everything after them on the same Track back by that length. NOT Lift, Extract, Magnetic delete (_Avoid_ these words for it).
+- Edit point — The boundary on a Track where one Clip ends and the next begins, made by a Split or by placing Clips end to end. Picture and sound change there from one Frame to the next with nothing repeated or lost. NOT Cut, Splice, Join (_Avoid_ these words for it).
