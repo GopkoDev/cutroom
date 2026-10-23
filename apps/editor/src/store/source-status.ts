@@ -94,7 +94,7 @@ export interface SourceStatusTracker {
   /**
    * The Source in the open Project whose file `handle` is — compared with each held handle by
    * `isSameEntry`, so a different handle to the same file, under any name, is found. For the
-   * export, which must not save over a Source (decisions.md). A Source with no handle here (never
+   * export, which must not save over a Source (spec.md §1). A Source with no handle here (never
    * linked in this browser) cannot be compared and is not found.
    */
   sourceAt(handle: FileSystemHandle): Promise<string | undefined>

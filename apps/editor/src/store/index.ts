@@ -9,7 +9,7 @@
 // The Project is the document — saved, migrated, one day uploaded, and undoable in full. Beside it
 // live the Playhead, the transport, each Source's Linked/Offline status and whatever the engine
 // last said. Those are **runtime state**: they are in this store, they are not in the document, and
-// they are not in the undo history (data-model.md, contracts/model-api.md).
+// they are not in the undo history (data-model.md, contracts/public-api.md).
 //
 // The line is load-bearing rather than tidy. Undo replays inverse patches over the Project and
 // writes nothing else, so undoing an import cannot move the Playhead and cannot take a Source from
@@ -194,7 +194,7 @@ export interface EditorState {
    * Recomputed after every change and compared by identity: `projectScene` returns the *same*
    * object when the picture did not move, so an edit the renderer cannot see does not bump the
    * revision and costs no repost. The comparison is used only in that direction — a different
-   * object is always reposted, whether or not the pixels really moved (contracts/model-api.md).
+   * object is always reposted, whether or not the pixels really moved (contracts/public-api.md).
    */
   readonly scene: Scene | null
   readonly sceneRevision: number

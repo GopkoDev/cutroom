@@ -24,7 +24,7 @@
 // alternative, running the result back through `parseProject`, was rejected for a specific reason:
 // `parseProject` rebuilds every object it validates, which would destroy the structural sharing
 // Immer just gave us and so defeat the memoisation the Scene projection depends on
-// (contracts/model-api.md, "referentially transparent enough to memoise"). The guarantee is not
+// (contracts/public-api.md, "referentially transparent enough to memoise"). The guarantee is not
 // dropped, it is moved: test/commands.test.ts puts the output of every command through
 // `parseProject`, so a command that forgets a check fails there rather than in a user's storage.
 
@@ -335,7 +335,7 @@ function requireProject(prior: Project | null, command: Command): Project {
  * and starting from nothing is what lets that command have an inverse like every other one.
  *
  * Pure. Same Project and same command, same result — including the patches. Ids and the timestamp
- * come from the command, never from a clock or a generator in here (contracts/model-api.md).
+ * come from the command, never from a clock or a generator in here (contracts/public-api.md).
  *
  * Throws {@link CommandError} without touching `project` if the command would break an invariant:
  * a Clip overlapping another on its Track, a Frame that is not a whole number, an id already in

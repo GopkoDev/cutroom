@@ -20,7 +20,7 @@
 // ## What a chunk may be, and what the graph does about it
 //
 // A chunk's `startSample` is on the Timeline's own sample grid and the engine has already trimmed it
-// to its Clip (worker-protocol `audio-pcm`), so the same Clip and sample always carry the same
+// to its Clip (events.md `audio-pcm`), so the same Clip and sample always carry the same
 // sound. The graph relies on that address and on nothing about the chunk's timing. A chunk may be:
 //
 //   * **late**, its start already past — the part still ahead is played and the rest skipped, so

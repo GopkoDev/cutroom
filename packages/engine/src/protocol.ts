@@ -1,5 +1,5 @@
 // The interface between the main thread and the engine worker (ADR 0003,
-// contracts/worker-protocol.md).
+// contracts/events.md).
 //
 // This module is the reason a message shape cannot drift. Both sides import these declarations —
 // `apps/editor` posts a `ToEngine` and narrows an `EngineEvent`, the worker narrows a `ToEngine`

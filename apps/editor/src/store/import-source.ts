@@ -18,7 +18,7 @@
 //
 // Everything this reaches outside itself for is passed in, so the order can be tested without a
 // browser. The ids and the timestamp are minted here — the model takes them as input and never
-// generates its own (contracts/model-api.md).
+// generates its own (contracts/public-api.md).
 
 import type { SourceAttachedEvent } from "@cutroom/engine/protocol"
 import { importCommands, type Source } from "@cutroom/model"

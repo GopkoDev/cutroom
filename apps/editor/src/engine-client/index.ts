@@ -1,4 +1,4 @@
-// The main thread's half of the worker protocol (contracts/worker-protocol.md, ADR 0003).
+// The main thread's half of the worker protocol (contracts/events.md, ADR 0003).
 //
 // One module spawns the engine, transfers the Preview's canvas into it, and is the only place in
 // `apps/editor` that calls `postMessage` at it. Everything else here follows from the contract.
