@@ -177,14 +177,21 @@ export interface EngineClient {
    * Request/response, and one at a time (spec assumption): a second call while one is running is
    * refused rather than silently replacing it. `writable` is transferred, so the caller must not
    * touch it afterwards.
+   *
+   * A plain `WritableStream` forwarding to the destination's `FileSystemWritableFileStream`
+   * (`forwardingWritable` from `@cutroom/engine`): Chrome cannot transfer the file stream itself.
    */
-  startExport(
-    request: ExportRequest,
-    writable: FileSystemWritableFileStream
-  ): Promise<ExportOutcome>
+  startExport(request: ExportRequest, writable: WritableStream): Promise<ExportOutcome>
 
   /** Mixed PCM for a running export. The channel buffers are transferred, not copied. */
   sendExportAudioChunk(channels: readonly Float32Array[], startSample: number, final: boolean): void
+
+  /**
+   * Asks for the running export's decoded sound up to `toFrame`, for the main thread to mix (ADR
+   * 0008). Announced, not returned: the answer is an `export-audio-pcm` naming the same `toFrame`,
+   * which `audio/offline-mix.ts`'s `requestedExportPcm` pairs with the request.
+   */
+  requestExportAudio(toFrame: Frame): void
 
   /** Asks a running export to stop. The promise from `startExport` resolves as `cancelled`. */
   cancelExport(): void
@@ -371,7 +378,7 @@ export function startEngine(options: EngineClientOptions): EngineClient {
         break
 
       default:
-        // `audio-pcm`, `export-audio-ack`, `export-progress`:
+        // `audio-pcm`, `export-audio-ack`, `export-audio-pcm`, `export-progress`:
         // announcements, correlated to nothing, delivered to whoever is listening.
         break
     }
@@ -478,6 +485,10 @@ export function startEngine(options: EngineClientOptions): EngineClient {
       // because two channel views over one buffer would be transferred twice, which throws.
       const buffers = [...new Set(channels.map((channel) => channel.buffer))]
       post({ type: "export-audio-chunk", channels, startSample, final }, buffers as Transferable[])
+    },
+
+    requestExportAudio(toFrame) {
+      post({ type: "export-audio-request", toFrame })
     },
 
     cancelExport() {

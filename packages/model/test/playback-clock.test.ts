@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  anchorAtTimelineSample,
   frameAtContextTime,
   frameToContextTime,
   frameToSampleIndex,
@@ -125,5 +126,46 @@ describe("timelineSampleToContextTime", () => {
     expect(() => timelineSampleToContextTime(VIDEO, AT_ZERO, SAMPLE_RATE, 0.5)).toThrow(RangeError)
     expect(() => timelineSampleToContextTime(VIDEO, AT_ZERO, SAMPLE_RATE, -1)).toThrow(RangeError)
     expect(() => timelineSampleToContextTime(VIDEO, AT_ZERO, 0, 0)).toThrow(RangeError)
+  })
+})
+
+describe("anchorAtTimelineSample", () => {
+  const SAMPLE_RATE = 48_000
+
+  it("puts the sample at context time 0 exactly, on a Frame boundary between two samples", () => {
+    // Frame 1 at 30000/1001 begins at sample 1601.6; its nearest sample, 1602, begins 0.4 of a
+    // sample later, so the anchor's Frame begins 0.4 / 48000 s before context time 0.
+    const sample = frameToSampleIndex(NTSC, SAMPLE_RATE, 1)
+    expect(sample).toBe(1602)
+    const anchor = anchorAtTimelineSample(NTSC, SAMPLE_RATE, sample, 1)
+    expect(anchor.frame).toBe(1)
+    expect(anchor.contextSeconds).toBeCloseTo(-0.4 / SAMPLE_RATE, 15)
+    expect(timelineSampleToContextTime(NTSC, anchor, SAMPLE_RATE, sample)).toBe(0)
+  })
+
+  it("is exact ten minutes and an hour in, with the anchor a Frame early", () => {
+    for (const frame of [17_982, 107_892, 1_000_007]) {
+      const sample = frameToSampleIndex(NTSC, SAMPLE_RATE, frame)
+      const anchor = anchorAtTimelineSample(NTSC, SAMPLE_RATE, sample, frame - 1)
+      expect(timelineSampleToContextTime(NTSC, anchor, SAMPLE_RATE, sample)).toBe(0)
+      // Ten seconds of samples later is ten seconds later, to far better than a sample.
+      const later = timelineSampleToContextTime(NTSC, anchor, SAMPLE_RATE, sample + 480_000)
+      expect(Math.abs(later - 10)).toBeLessThan(1e-12)
+      // The Frame the anchor names begins where the Timebase says, measured from the sample.
+      expect(frameToContextTime(NTSC, anchor, frame - 1)).toBe(anchor.contextSeconds)
+    }
+  })
+
+  it("places a sample of another rate on the same instants", () => {
+    // 44.1 kHz sound against a 48 kHz mix: Timeline second 3 is sample 132300 at 44.1 kHz.
+    const anchor = anchorAtTimelineSample(VIDEO, SAMPLE_RATE, 3 * SAMPLE_RATE, 89)
+    expect(anchor.contextSeconds).toBeCloseTo(-1 / 30, 15)
+    expect(timelineSampleToContextTime(VIDEO, anchor, 44_100, 132_300)).toBeCloseTo(0, 15)
+  })
+
+  it("rejects a fractional sample, a zero rate and a negative Frame", () => {
+    expect(() => anchorAtTimelineSample(VIDEO, SAMPLE_RATE, 0.5, 0)).toThrow(RangeError)
+    expect(() => anchorAtTimelineSample(VIDEO, 0, 0, 0)).toThrow(RangeError)
+    expect(() => anchorAtTimelineSample(VIDEO, SAMPLE_RATE, 0, -1)).toThrow(RangeError)
   })
 })

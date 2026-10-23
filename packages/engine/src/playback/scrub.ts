@@ -17,7 +17,7 @@ import type { Frame, Scene } from "@cutroom/model"
 
 import type { ClipPicture } from "../compose/scene-clip"
 import type { SceneRenderer } from "../compose/renderer"
-import { retainSinks, sinkForClip, type ClipSink } from "../sources/canvas-sink"
+import { previewSinks, type ClipSink } from "../sources/canvas-sink"
 import { covers, sourceSecondsAt } from "./mapping"
 
 /**
@@ -34,13 +34,13 @@ export async function renderByRandomAccess(
   frame: Frame
 ): Promise<void> {
   const visible = scene.clips.filter((clip) => covers(clip, frame))
-  retainSinks(new Set(visible.map((clip) => clip.clipId)))
+  previewSinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
 
   const loans: ClipSink[] = []
   try {
     const fetched = await Promise.all(
       visible.map(async (clip): Promise<ClipPicture | null> => {
-        const sink = await sinkForClip(clip, scene.frameSize)
+        const sink = await previewSinks.sinkForClip(clip, scene.frameSize)
         if (sink === null) return null
         // R2: a seek and a live iterator on one decoder do not mix, and the iterator's position is
         // one the user has left.

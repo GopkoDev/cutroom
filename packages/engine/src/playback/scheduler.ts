@@ -37,7 +37,7 @@
 import type { Frame, Scene } from "@cutroom/model"
 
 import type { SceneRenderer } from "../compose/renderer"
-import { abandonStreams } from "../sources/canvas-sink"
+import { previewSinks } from "../sources/canvas-sink"
 import { renderByRandomAccess } from "./scrub"
 import { openStreams, renderByStreaming } from "./stream"
 
@@ -98,11 +98,11 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
       const { state, fromFrame, scene } = job.change
       // Whether starting, restarting from a seek, or stopping: no iterator positioned for the old
       // run is worth continuing.
-      abandonStreams()
+      previewSinks.abandonStreams()
       playing = state === "playing"
       // The run begins at `fromFrame`, so a first clock Frame beyond it skipped the ones between.
       lastShown = playing ? fromFrame - 1 : null
-      if (playing && scene !== null) await openStreams(scene, fromFrame)
+      if (playing && scene !== null) await openStreams(previewSinks, scene, fromFrame)
       return
     }
 
@@ -115,7 +115,7 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
         report.rendered(frame, revision, 0)
         return
       }
-      await renderByStreaming(renderer, scene, frame)
+      await renderByStreaming(previewSinks, renderer, scene, frame)
       shownRevision = revision
       const skipped = lastShown !== null && frame > lastShown ? frame - lastShown - 1 : 0
       // Backwards too: a clock that went back is showing an earlier Frame now, and the next one

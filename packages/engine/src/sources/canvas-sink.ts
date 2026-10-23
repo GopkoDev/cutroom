@@ -16,7 +16,8 @@
 // during playback each of them needs its own decoder walking forward from its own position — a
 // shared sink would hand both Clips the same pooled canvas, and the second pull would overwrite
 // the picture of the first before either was drawn. Mediabunny allows any number of sinks over
-// one track, each with its own decoder.
+// one track, each with its own decoder. The map is per consumer, not global (`SinkSet`): the
+// Preview and a running Export draw the same Clips at the same time from sinks of their own.
 //
 // **THE POOLING CAVEAT (R1) — read before touching `poolSize`.** `CanvasSink` recycles its
 // canvases. With `poolSize: n` it owns `n` canvases and draws each new picture into the next one,
@@ -133,8 +134,11 @@ interface Entry extends ClipSink {
   current: Stream | null
 }
 
-/** The sink of every SceneClip that was visible in the last Frame rendered, by `clipId`. */
-const sinks = new Map<string, Entry>()
+/**
+ * The sink of every SceneClip that was visible in the last Frame rendered, by `clipId` — one map
+ * per consumer of pictures (`SinkSet`).
+ */
+type Sinks = Map<string, Entry>
 
 // ---------------------------------------------------------------------------------------------
 // The compositor's side
@@ -151,15 +155,12 @@ function trackOf(sourceId: string): InputVideoTrack | null {
   return getAttachedSource(sourceId)?.video ?? null
 }
 
-/**
- * The sink for a SceneClip, built on first use, or `null` when the Clip's Source has no reachable
- * picture.
- *
- * A sink is reused for as long as its Clip stays visible over the same track at the same frame
- * size. Anything else gets a fresh one: the canvas a sink decodes into is fixed at construction,
- * so a frame size change cannot be applied to an existing sink.
- */
-export async function sinkForClip(clip: SceneClip, frameSize: PixelSize): Promise<ClipSink | null> {
+/** `SinkSet.sinkForClip`, over one set's map. */
+async function sinkForClipIn(
+  sinks: Sinks,
+  clip: SceneClip,
+  frameSize: PixelSize
+): Promise<ClipSink | null> {
   const track = trackOf(clip.sourceId)
   if (track === null) {
     // Detached since the last Frame: the old sink is over a disposed `Input` and can only fail.
@@ -331,24 +332,64 @@ export async function sinkForClip(clip: SceneClip, frameSize: PixelSize): Promis
   return entry
 }
 
-/** Closes every Clip's streaming iterator, keeping the sinks: playback has stopped, or restarted. */
-export function abandonStreams(): void {
-  for (const entry of sinks.values()) entry.abandonStream()
+/**
+ * One consumer's sinks: the Clips it has drawn, each with its own decoder and pooled canvas.
+ *
+ * **Why there is more than one.** The Preview and a running Export both draw Clips, often the same
+ * Clips at the same moment — an export runs while the user keeps editing and scrubbing (FR-019) —
+ * and a sink is not shareable between them. Its one pooled canvas is on loan to whoever pulled
+ * last, and its stream walks forward from one position: the Preview seeking a sink the Export is
+ * streaming through would move the Export's decoder to wherever the user's pointer is, and the
+ * draw-before-next-pull check would throw on whichever side came second. So each consumer gets its
+ * own set, keyed by `clipId` within it, and the two never meet. Both are built over the one track
+ * attach holds, which is Mediabunny's model anyway: any number of sinks over one track.
+ */
+export interface SinkSet {
+  /**
+   * The sink for a SceneClip, built on first use, or `null` when the Clip's Source has no
+   * reachable picture.
+   *
+   * A sink is reused for as long as its Clip stays visible over the same track at the same frame
+   * size. Anything else gets a fresh one: the canvas a sink decodes into is fixed at construction,
+   * so a frame size change cannot be applied to an existing sink.
+   */
+  sinkForClip(clip: SceneClip, frameSize: PixelSize): Promise<ClipSink | null>
+
+  /** Closes every Clip's streaming iterator, keeping the sinks: playback has stopped, or restarted. */
+  abandonStreams(): void
+
+  /**
+   * Lets go of every sink whose Clip is not in `visible`.
+   *
+   * Sinks are kept for visible Clips only, not for every Clip in the Scene: each one owns a decoder
+   * and a canvas at the Project's frame size, and a Timeline of a hundred Clips should not hold a
+   * hundred of each to show one. Scrubbing back onto a Clip rebuilds its sink, which is cheap —
+   * construction is lazy, and the decoder it would have kept has to seek anyway. An empty set lets
+   * go of everything, which is how an Export cleans up after itself.
+   */
+  retainSinks(visible: ReadonlySet<string>): void
 }
 
-/**
- * Lets go of every sink whose Clip is not in `visible`.
- *
- * Sinks are kept for visible Clips only, not for every Clip in the Scene: each one owns a decoder
- * and a canvas at the Project's frame size, and a Timeline of a hundred Clips should not hold a
- * hundred of each to show one. Scrubbing back onto a Clip rebuilds its sink, which is cheap —
- * construction is lazy, and the decoder it would have kept has to seek anyway.
- */
-export function retainSinks(visible: ReadonlySet<string>): void {
-  for (const [clipId, entry] of sinks) {
-    if (!visible.has(clipId)) {
-      entry.abandonStream()
-      sinks.delete(clipId)
-    }
+/** A fresh, empty set of sinks for one consumer of pictures. */
+export function createSinkSet(): SinkSet {
+  const sinks: Sinks = new Map()
+  return {
+    sinkForClip: (clip, frameSize) => sinkForClipIn(sinks, clip, frameSize),
+
+    abandonStreams(): void {
+      for (const entry of sinks.values()) entry.abandonStream()
+    },
+
+    retainSinks(visible: ReadonlySet<string>): void {
+      for (const [clipId, entry] of sinks) {
+        if (!visible.has(clipId)) {
+          entry.abandonStream()
+          sinks.delete(clipId)
+        }
+      }
+    },
   }
 }
+
+/** The Preview's sinks: what scrubbing and playback draw from (playback/scheduler.ts). */
+export const previewSinks: SinkSet = createSinkSet()

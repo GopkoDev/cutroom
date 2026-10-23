@@ -10,8 +10,8 @@
 // Three rules the shapes below are held to.
 //
 // **Everything here survives `postMessage`.** Plain data, plus the four transferable things the
-// contract names: an `OffscreenCanvas`, a `File`, `Float32Array`s and a
-// `FileSystemWritableFileStream`. No class instances of ours, no functions, no `Date`.
+// contract names: an `OffscreenCanvas`, a `File`, `Float32Array`s and a `WritableStream` (one
+// forwarding to a `FileSystemWritableFileStream`, which Chrome will not transfer itself). No class instances of ours, no functions, no `Date`.
 //
 // **The domain types are imported, never redeclared.** `Scene`, `SceneClip`, `Timebase`,
 // `Rational`, `Frame` and `PixelSize` all come from `@cutroom/model`, which is the only place in
@@ -178,8 +178,14 @@ export interface TransportMessage {
  * Starts an export. Carries its own `Scene` — frozen, sharing no object with the Project — so that
  * edits made while it runs cannot reach it (FR-019). `writable` is transferred.
  *
+ * `range` is half-open, like a Clip's `startFrame + durationFrames`: `fromFrame` is the first Frame
+ * exported and `toFrame` the first one not, so the whole Timeline is `{ fromFrame: 0, toFrame:
+ * durationFrames }`. The file starts at its own zero — Frame `fromFrame` is at 0 s.
+ *
  * `audio` is `null` when the export has no sound, which is a different thing from an export whose
  * audio settings have not been chosen.
+ *
+ * Answered by exactly one of `export-done`, `export-cancelled` and `export-failed`.
  */
 export interface ExportStartMessage {
   readonly type: "export-start"
@@ -192,7 +198,13 @@ export interface ExportStartMessage {
     readonly sampleRate: number
     readonly channels: number
   } | null
-  readonly writable: FileSystemWritableFileStream
+  /**
+   * Where the file goes: a plain `WritableStream` forwarding to the `FileSystemWritableFileStream`
+   * the main thread opened — `forwardingWritable(file).writable` from `@cutroom/engine` — transferred. Not
+   * the file stream itself: Chrome refuses to transfer one (`DataCloneError`). Closing it commits
+   * the file and aborting it discards it; the worker closes it only after a finished export.
+   */
+  readonly writable: WritableStream
 }
 
 /**
@@ -200,8 +212,13 @@ export interface ExportStartMessage {
  * chunks. The worker wraps each chunk in an `AudioSample` and awaits the encoder's backpressure
  * before answering `export-audio-ack` (invariant 4).
  *
- * `channels` is one `Float32Array` per channel, all of the same length; `startSample` is the index
- * of the first sample in the whole exported stream, not within this chunk.
+ * `channels` is one `Float32Array` per channel (`export-start.audio.channels` of them, at its
+ * `sampleRate`), all of the same length; `startSample` is the index of the first sample in the
+ * whole exported stream, not within this chunk. The stream's sample 0 is the Timeline's sample
+ * `frameToSampleIndex(timebase, sampleRate, fromFrame)`, and it holds exactly
+ * `frameToSampleIndex(…, toFrame) − frameToSampleIndex(…, fromFrame)` samples. Chunks are
+ * contiguous — each starts where the previous ended — and the last is marked `final`; a gap, an
+ * overlap or a stream that ends short fails the export, and samples past the end are dropped.
  */
 export interface ExportAudioChunkMessage {
   readonly type: "export-audio-chunk"
@@ -211,8 +228,19 @@ export interface ExportAudioChunkMessage {
 }
 
 /**
- * Aborts encoding. The worker closes the writable stream without finalizing and replies
- * `export-cancelled`; no finished file is left behind (FR-018).
+ * Asks for the decoded sound of the running export's Clips, up to `toFrame`, for the main thread
+ * to mix (ADR 0008): the engine owns the Sources, the main thread owns `OfflineAudioContext`.
+ * Answered by one `export-audio-pcm` naming the same `toFrame`. Sent with `toFrame` increasing.
+ */
+export interface ExportAudioRequestMessage {
+  readonly type: "export-audio-request"
+  readonly toFrame: Frame
+}
+
+/**
+ * Aborts encoding. The worker aborts the writable stream — discarding everything written to it —
+ * and replies `export-cancelled`; no finished file is left behind (FR-018). With no export running
+ * there is nothing to cancel and nothing is said.
  */
 export interface ExportCancelMessage {
   readonly type: "export-cancel"
@@ -228,6 +256,7 @@ export type ToEngine =
   | TransportMessage
   | ExportStartMessage
   | ExportAudioChunkMessage
+  | ExportAudioRequestMessage
   | ExportCancelMessage
 
 /** The `type` of any message the main thread may send. */
@@ -338,6 +367,20 @@ export interface ExportAudioAckEvent {
   readonly startSample: number
 }
 
+/**
+ * The answer to one `export-audio-request`: decoded sound of the frozen export Scene's Clips, every
+ * chunk not sent in an earlier answer that starts before `toFrame` — and possibly some beyond it,
+ * since a decode runs a little ahead. Each chunk is exactly what `audio-pcm` carries during
+ * playback — Timeline-positioned, unbroken, at the Source's own rate (ADR 0012) — from the Frame
+ * before the export's `fromFrame` (sound a resampler interpolates the first samples from) to each
+ * Clip's end. Channels are transferred. A Clip without sound has none; an answer may be empty.
+ */
+export interface ExportAudioPcmEvent {
+  readonly type: "export-audio-pcm"
+  readonly toFrame: Frame
+  readonly chunks: readonly Omit<AudioPcmEvent, "type">[]
+}
+
 /** Drives the progress display. */
 export interface ExportProgressEvent {
   readonly type: "export-progress"
@@ -345,7 +388,15 @@ export interface ExportProgressEvent {
   readonly framesTotal: number
 }
 
-/** The stream was finalized and closed. */
+/**
+ * The worker wrote the whole file, finalized it and closed its stream; `bytes` is the file's size.
+ *
+ * Not, on its own, a finished file. The stream is a transferred one, so its close is a message to
+ * the main thread, where the file stream is actually committed — and a write or the commit failing
+ * there is something the worker can learn too late or not at all. The file is finished when this
+ * has arrived **and** `forwardingWritable(file).committed` has resolved; if that rejects, the
+ * export failed (FR-018).
+ */
 export interface ExportDoneEvent {
   readonly type: "export-done"
   readonly bytes: number
@@ -385,6 +436,7 @@ export type EngineEvent =
   | FramesDroppedEvent
   | AudioPcmEvent
   | ExportAudioAckEvent
+  | ExportAudioPcmEvent
   | ExportProgressEvent
   | ExportDoneEvent
   | ExportCancelledEvent

@@ -30,6 +30,9 @@
 // It also owns the transport (T062) — play and stop, and the audio clock that drives the Preview
 // while playing — for the same reason as the tracker below: the transport talks to this engine.
 //
+// It also owns the export controller (T075, T076), for the same reason again: an export is a
+// conversation with this engine, and ends with it. The dialog is opened from the top bar.
+//
 // It also owns the one Source status tracker (T051), because the tracker's lifetime is the
 // engine's: attachments are per worker, so a tracker that outlived its engine would believe Sources
 // were attached to a worker that no longer exists. The three occasions on which status is derived
@@ -59,10 +62,14 @@ import { useEffect, useRef, useState } from "react"
 import type { PixelSize, Timebase } from "@cutroom/model"
 
 import { createTransport, type Transport } from "@/audio/transport"
+import { streamExportAudio } from "@/audio/offline-mix"
 import { startEngine, type EngineClient } from "@/engine-client"
 import { useEditorStore } from "@/store"
+import { createExportController, type ExportController } from "@/store/export"
 import { createSourceStatusTracker, type SourceStatusTracker } from "@/store/source-status"
 
+import { ExportDialog } from "./ExportDialog"
+import { pickSaveFile } from "./file-picker"
 import { RelinkPrompt } from "./RelinkPrompt"
 import { SourcesPanel } from "./SourcesPanel"
 import { Timeline } from "./Timeline"
@@ -183,6 +190,8 @@ export function EditorLayout() {
   const [engine, setEngine] = useState<EngineClient | null>(null)
   const [tracker, setTracker] = useState<SourceStatusTracker | null>(null)
   const [transport, setTransport] = useState<Transport | null>(null)
+  const [exporter, setExporter] = useState<ExportController | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
   const [renderer, setRenderer] = useState<string | null>(null)
 
   // The frame size the raster is created at. Fixed at the first render — a lazy initial state, not
@@ -221,6 +230,13 @@ export function EditorLayout() {
     setTracker(statusTracker)
     const playback = createTransport({ store: useEditorStore, engine: client })
     setTransport(playback)
+    const exports = createExportController({
+      engine: client,
+      pickDestination: (suggestedName) => pickSaveFile(suggestedName),
+      streamAudio: streamExportAudio,
+      sourceAt: (destination) => statusTracker.sourceAt(destination),
+    })
+    setExporter(exports)
     const stopWatchingFatal = client.on("fatal", (event) => {
       reportEngineFatal(event.reason)
     })
@@ -235,6 +251,7 @@ export function EditorLayout() {
 
     return () => {
       stopWatchingFatal()
+      exports.dispose()
       playback.dispose()
       statusTracker.dispose()
       releaseSession(element)
@@ -310,7 +327,22 @@ export function EditorLayout() {
 
   return (
     <div data-testid="editor-shell" className="flex h-svh flex-col overflow-hidden">
-      <TopBar transport={transport} />
+      <TopBar
+        transport={transport}
+        exporter={exporter}
+        onExport={() => {
+          setExportOpen(true)
+        }}
+      />
+      {exporter === null ? null : (
+        <ExportDialog
+          controller={exporter}
+          open={exportOpen}
+          onClose={() => {
+            setExportOpen(false)
+          }}
+        />
+      )}
 
       <div className="flex min-h-0 flex-1">
         <SourcesPanel tracker={tracker} />

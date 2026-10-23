@@ -36,56 +36,78 @@ export interface CounterReading {
 }
 
 /**
- * Reads the counter out of the Preview canvas. Each of the 35 squares of each digit is sampled as
- * the mean luma of its central half (so H.264 ringing at the glyph edges never decides anything)
- * and called lit above mid-grey. A digit is the glyph whose bitmap matches exactly — no nearest
- * match, so a smeared or misplaced picture reads as `?`, not as a plausible wrong number.
+ * The mean luma of the central half of each of the counter's 35 squares per digit, for a picture
+ * `width`×`height` whose RGBA pixels are `data` — the geometry `writeSprite` draws for a picture
+ * this tall. Self-contained, because it runs in the page: `readCounter` and the specs that read
+ * the counter off a decoded export (`exported-file.ts`) send its source there.
  */
-export async function readCounter(page: Page): Promise<CounterReading> {
-  const { samples, width, height } = await page.evaluate(
-    async ({ digits }) => {
-      const element = document.querySelector<HTMLCanvasElement>("[data-testid=preview-canvas]")
-      if (element === null) throw new Error("the Preview canvas is not on the page")
-      // The worker's frames reach the element when the compositor next runs.
-      await new Promise((settle) => requestAnimationFrame(() => requestAnimationFrame(settle)))
+export function sampleCounterCells(
+  data: Uint8ClampedArray,
+  width: number,
+  height: number
+): number[][] {
+  const digits = 6
+  const scale = Math.max(6, Math.round((height / 1080) * 16 * 0.5) * 2)
+  const pad = scale / 2
+  const cellWidth = 5 * scale + pad * 2
+  const margin = Math.round(height / 27)
+  const inset = Math.floor(scale / 4)
+  const side = scale - inset * 2
 
-      const bitmap = await createImageBitmap(element)
-      const probe = new OffscreenCanvas(bitmap.width, bitmap.height)
-      const context = probe.getContext("2d")
-      if (context === null) throw new Error("no 2d context to read the Frame back through")
-      context.drawImage(bitmap, 0, 0)
-
-      // `writeSprite`'s geometry in make-fixtures.ts, for a picture this tall.
-      const h = bitmap.height
-      const scale = Math.max(6, Math.round((h / 1080) * 16 * 0.5) * 2)
-      const pad = scale / 2
-      const cellWidth = 5 * scale + pad * 2
-      const margin = Math.round(h / 27)
-      const inset = Math.floor(scale / 4)
-      const side = scale - inset * 2
-
-      const lumas: number[][] = []
-      for (let i = 0; i < digits; i++) {
-        const cell: number[] = []
-        for (let gy = 0; gy < 7; gy++) {
-          for (let gx = 0; gx < 5; gx++) {
-            const x = margin + i * cellWidth + pad + gx * scale + inset
-            const y = margin + pad + gy * scale + inset
-            const { data } = context.getImageData(x, y, side, side)
-            let sum = 0
-            for (let p = 0; p < data.length; p += 4) {
-              sum += 0.2126 * data[p]! + 0.7152 * data[p + 1]! + 0.0722 * data[p + 2]!
-            }
-            cell.push(sum / (side * side))
+  const lumas: number[][] = []
+  for (let i = 0; i < digits; i++) {
+    const cell: number[] = []
+    for (let gy = 0; gy < 7; gy++) {
+      for (let gx = 0; gx < 5; gx++) {
+        const x0 = margin + i * cellWidth + pad + gx * scale + inset
+        const y0 = margin + pad + gy * scale + inset
+        let sum = 0
+        for (let y = y0; y < y0 + side; y++) {
+          for (let x = x0; x < x0 + side; x++) {
+            const p = (y * width + x) * 4
+            sum += 0.2126 * data[p]! + 0.7152 * data[p + 1]! + 0.0722 * data[p + 2]!
           }
         }
-        lumas.push(cell)
+        cell.push(sum / (side * side))
       }
-      return { samples: lumas, width: bitmap.width, height: bitmap.height }
-    },
-    { digits: DIGITS }
-  )
+    }
+    lumas.push(cell)
+  }
+  return lumas
+}
 
+/**
+ * The counter's rectangle — all six digits with their padding — in a picture this tall, for
+ * measuring how alike two pictures are where the picture actually has something in it.
+ */
+export function counterRegion(height: number): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
+  const scale = Math.max(6, Math.round((height / 1080) * 16 * 0.5) * 2)
+  const pad = scale / 2
+  const margin = Math.round(height / 27)
+  const digits = 6 // not `DIGITS`: this runs in the page and may close over nothing
+  return {
+    x: margin,
+    y: margin,
+    width: digits * (5 * scale + pad * 2),
+    height: 7 * scale + pad * 2,
+  }
+}
+
+/**
+ * Turns sampled cells into digits. Each square is called lit above mid-grey; a digit is the glyph
+ * whose bitmap matches exactly — no nearest match, so a smeared or misplaced picture reads as `?`,
+ * not as a plausible wrong number.
+ */
+export function decodeCounter(
+  samples: readonly (readonly number[])[],
+  width: number,
+  height: number
+): CounterReading {
   let weakest = Number.POSITIVE_INFINITY
   let text = ""
   for (const cell of samples) {
@@ -98,6 +120,39 @@ export async function readCounter(page: Page): Promise<CounterReading> {
     text += digit === undefined ? "?" : digit[0]
   }
   return { text, margin: Math.round(weakest), width, height }
+}
+
+/**
+ * Reads the counter out of the Preview canvas. Each of the 35 squares of each digit is sampled as
+ * the mean luma of its central half (so H.264 ringing at the glyph edges never decides anything);
+ * see `decodeCounter` for how the samples become digits.
+ */
+export async function readCounter(page: Page): Promise<CounterReading> {
+  const { samples, width, height } = await page.evaluate(async (sampler) => {
+    const element = document.querySelector<HTMLCanvasElement>("[data-testid=preview-canvas]")
+    if (element === null) throw new Error("the Preview canvas is not on the page")
+    // The worker's frames reach the element when the compositor next runs.
+    await new Promise((settle) => requestAnimationFrame(() => requestAnimationFrame(settle)))
+
+    const bitmap = await createImageBitmap(element)
+    const probe = new OffscreenCanvas(bitmap.width, bitmap.height)
+    const context = probe.getContext("2d")
+    if (context === null) throw new Error("no 2d context to read the Frame back through")
+    context.drawImage(bitmap, 0, 0)
+    const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height)
+    const sample = new Function(`return (${sampler})`)() as (
+      data: Uint8ClampedArray,
+      width: number,
+      height: number
+    ) => number[][]
+    return {
+      samples: sample(data, bitmap.width, bitmap.height),
+      width: bitmap.width,
+      height: bitmap.height,
+    }
+  }, sampleCounterCells.toString())
+
+  return decodeCounter(samples, width, height)
 }
 
 export const counterText = (frame: number) => String(frame).padStart(DIGITS, "0")

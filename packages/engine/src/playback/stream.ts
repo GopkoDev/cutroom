@@ -29,7 +29,7 @@ import type { Frame, Scene, SceneClip, Timebase } from "@cutroom/model"
 
 import type { ClipPicture } from "../compose/scene-clip"
 import type { SceneRenderer } from "../compose/renderer"
-import { retainSinks, sinkForClip, type ClipSink } from "../sources/canvas-sink"
+import type { ClipSink, SinkSet } from "../sources/canvas-sink"
 import { covers, sourceSecondsAt } from "./mapping"
 
 /**
@@ -79,12 +79,12 @@ function canContinue(sink: ClipSink, key: string, frame: Frame): boolean {
  * Opens a stream for every SceneClip that covers `frame`, positioned at `frame`, so their first
  * pictures are already decoding when the clock asks for them. Called when playback starts.
  */
-export async function openStreams(scene: Scene, frame: Frame): Promise<void> {
+export async function openStreams(sinks: SinkSet, scene: Scene, frame: Frame): Promise<void> {
   const visible = scene.clips.filter((clip) => covers(clip, frame))
-  retainSinks(new Set(visible.map((clip) => clip.clipId)))
+  sinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
   await Promise.all(
     visible.map(async (clip) => {
-      const sink = await sinkForClip(clip, scene.frameSize)
+      const sink = await sinks.sinkForClip(clip, scene.frameSize)
       if (sink === null) return
       const key = streamKey(scene.timebase, clip)
       const stream = sink.stream()
@@ -105,18 +105,19 @@ export async function openStreams(scene: Scene, frame: Frame): Promise<void> {
  * a `finally`, which is also what starts each stream decoding its next picture.
  */
 export async function renderByStreaming(
+  sinks: SinkSet,
   renderer: SceneRenderer,
   scene: Scene,
   frame: Frame
 ): Promise<void> {
   const visible = scene.clips.filter((clip) => covers(clip, frame))
-  retainSinks(new Set(visible.map((clip) => clip.clipId)))
+  sinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
 
   const loans: ClipSink[] = []
   try {
     const fetched = await Promise.all(
       visible.map(async (clip): Promise<ClipPicture | null> => {
-        const sink = await sinkForClip(clip, scene.frameSize)
+        const sink = await sinks.sinkForClip(clip, scene.frameSize)
         if (sink === null) return null
         const key = streamKey(scene.timebase, clip)
         if (!canContinue(sink, key, frame)) {

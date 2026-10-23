@@ -15,14 +15,21 @@
 // transport writes. The spacebar works wherever focus is, except where Space types a character. On
 // a focused button Space would also *click* it, on keyup — the play button itself after a mouse
 // press, most of all, which would stop what Space just started — so the keyup is swallowed too.
+//
+// Export opens the export dialog (T073). While an export is in hand the way back to the Project
+// list is closed: leaving the editor ends the engine, and with it the export and the file it is
+// writing, which is not something one stray click should do.
 
 import { useEffect } from "react"
+import { useStore } from "zustand"
+import { createStore } from "zustand/vanilla"
 
 import type { Project } from "@cutroom/model"
 
 import type { Transport } from "@/audio/transport"
 import { Button } from "@/components/ui/button"
 import { canRedo, canUndo, useEditorStore } from "@/store"
+import { isExportBusy, type ExportController, type ExportState } from "@/store/export"
 
 import { formatTimecode } from "./timecode"
 
@@ -68,8 +75,26 @@ function isSpace(event: KeyboardEvent): boolean {
   )
 }
 
-export function TopBar({ transport }: { readonly transport: Transport | null }) {
+/** Stands in for the export store before the engine exists, so the hook below is always called. */
+const IDLE_EXPORTS = createStore<ExportState>()(() => ({ status: { phase: "idle" } }))
+
+/** Whether an export is in hand. */
+function useExporting(exporter: ExportController | null): boolean {
+  const busy = useStore(exporter?.store ?? IDLE_EXPORTS, (state) => isExportBusy(state.status))
+  return exporter !== null && busy
+}
+
+export function TopBar({
+  transport,
+  exporter = null,
+  onExport,
+}: {
+  readonly transport: Transport | null
+  readonly exporter?: ExportController | null
+  readonly onExport?: () => void
+}) {
   const project = useEditorStore((state) => state.project)
+  const exporting = useExporting(exporter)
   const playing = useEditorStore((state) => state.transport === "playing")
   const undoable = useEditorStore(canUndo)
   const redoable = useEditorStore(canRedo)
@@ -97,7 +122,13 @@ export function TopBar({ transport }: { readonly transport: Transport | null }) 
 
   return (
     <header className="flex shrink-0 items-center gap-3 border-b px-3 py-2">
-      <Button variant="ghost" size="sm" onClick={() => void closeProject()}>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={exporting}
+        title={exporting ? "An export is running. Cancel it or let it finish first." : undefined}
+        onClick={() => void closeProject()}
+      >
         Projects
       </Button>
       <h1 data-testid="project-name" className="truncate text-sm font-medium">
@@ -122,6 +153,17 @@ export function TopBar({ transport }: { readonly transport: Transport | null }) 
       <Timecode />
 
       <div className="ml-auto flex items-center gap-1">
+        <Button
+          variant="outline"
+          size="sm"
+          data-testid="export-open"
+          disabled={project === null || exporter === null}
+          onClick={() => {
+            onExport?.()
+          }}
+        >
+          Export…
+        </Button>
         <Button
           variant="outline"
           size="sm"

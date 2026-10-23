@@ -1,4 +1,5 @@
-// A stand-in for the native file picker, for every spec that imports a Source through the UI.
+// A stand-in for the native file pickers, for every spec that imports a Source through the UI or
+// exports one.
 //
 // Not a `*.spec.ts`, so Playwright does not collect it.
 //
@@ -38,6 +39,18 @@
 // "after the reload, this file is `prompt` again" by calling `setPermission("prompt")` before it
 // reloads, which is what a real browser does to a restored handle (ADR 0005). Call counts and the
 // pick queue are per page load.
+//
+// ## The save picker
+//
+// `showSaveFilePicker` (Export, T075) is replaced the same way and answers from its own queue,
+// filled with `queueSave`: a name, `{ suggested: true }` for the name the app suggested, or
+// `"cancel"`. It answers with an OPFS handle to that name, creating the file empty if it is not
+// there — what Chrome does for a new name — and leaving an existing one as it is, so a spec can
+// prove an Export into an existing file leaves it intact when it does not finish. It throws
+// `SecurityError` without user activation, so a click handler that awaits before asking fails
+// here as it would for real. The app then writes with `createWritable()` and hands the stream to
+// the engine's Worker; the bytes land in OPFS, where `fileSize` and `readFile` read them back
+// (or a spec opens them in the page, from `navigator.storage.getDirectory()`, by the same name).
 //
 // ## Counting bytes read (opt-in)
 //
@@ -84,6 +97,12 @@ export type Fixture =
  */
 export type PickEntry = Fixture | { fixture: Fixture; as: string } | { existing: string } | "cancel"
 
+/**
+ * What the next save picker call answers: that name, the app's own suggested name, or a cancel
+ * (`AbortError`). As with `PickEntry`, a save picker with nothing queued fails loudly.
+ */
+export type SaveEntry = string | { suggested: true } | "cancel"
+
 export interface FilePickerOptions {
   /** What `queryPermission` answers for a file nothing more specific was said about. `granted`. */
   readonly permission?: PermissionState
@@ -125,6 +144,16 @@ export interface FilePicker {
   bytesRead(name: string): Promise<number>
   /** Zeroes every byte count, in every Worker. */
   resetBytesRead(): Promise<void>
+  /** Queues what the next save picker calls answer, in order. Needs the app's page loaded. */
+  queueSave(...entries: SaveEntry[]): Promise<void>
+  /** How many times the save picker was opened since this page loaded. */
+  saves(): Promise<number>
+  /** The `suggestedName` the app passed to the last save picker call, if any. */
+  lastSuggestedName(): Promise<string | undefined>
+  /** The size of a file on disk, or `null` when there is none. */
+  fileSize(name: string): Promise<number | null>
+  /** A file's bytes, read back into the spec. Meant for exports of a few MB, not for fixtures. */
+  readFile(name: string): Promise<Buffer>
 }
 
 /** Same-origin, so a fetch from the page needs no CORS; answered by `page.route`, never by Vite. */
@@ -146,6 +175,11 @@ interface Bridge {
   exists(name: string): Promise<boolean>
   bytesRead(name: string): Promise<number>
   resetBytesRead(): Promise<void>
+  queueSave(names: Array<string | { suggested: true } | null>): void
+  saves(): number
+  lastSuggestedName(): string | undefined
+  fileSize(name: string): Promise<number | null>
+  readBase64(name: string): Promise<string>
 }
 
 interface InitArgs {
@@ -276,6 +310,47 @@ function installInPage(args: InitArgs): void {
       const handle = await (await root()).getFileHandle(name)
       setPermission("granted", name) // a pick grants read, as a real one does
       return [handle]
+    },
+  })
+
+  // ---- the save picker --------------------------------------------------------------------------
+
+  /** `null` is a cancel. Per page load, like the open picker's queue. */
+  const saveQueued: Array<string | { suggested: true } | null> = []
+  let saves = 0
+  let lastSuggestedName: string | undefined
+
+  Object.defineProperty(window, "showSaveFilePicker", {
+    configurable: true,
+    writable: true,
+    value: async function showSaveFilePicker(options?: {
+      suggestedName?: string
+    }): Promise<FileSystemFileHandle> {
+      if (!hasActivation()) {
+        throw new DOMException(
+          "Must be handling a user gesture to show a file picker.",
+          "SecurityError"
+        )
+      }
+      saves += 1
+      lastSuggestedName = options?.suggestedName
+      if (saveQueued.length === 0) {
+        throw new Error(
+          "e2e file picker: the save picker was opened with nothing queued — call `picker.queueSave(…)` first"
+        )
+      }
+      const entry = saveQueued.shift() as string | { suggested: true } | null
+      if (entry === null) throw new DOMException("The user aborted a request.", "AbortError")
+      const name = typeof entry === "string" ? entry : options?.suggestedName
+      if (name === undefined || name === "") {
+        throw new Error(
+          "e2e file picker: `{ suggested: true }` queued, but the app suggested no name"
+        )
+      }
+      // A new name exists, empty, once the picker answers; an existing file is left as it is.
+      const handle = await (await root()).getFileHandle(name, { create: true })
+      setPermission("granted", name) // a save pick grants read and write
+      return handle
     },
   })
 
@@ -511,6 +586,28 @@ function installInPage(args: InitArgs): void {
       workerTotals.clear()
       await broadcast("reset")
     },
+    queueSave(names) {
+      saveQueued.push(...names)
+    },
+    saves: () => saves,
+    lastSuggestedName: () => lastSuggestedName,
+    async fileSize(name) {
+      try {
+        const handle = await (await root()).getFileHandle(name)
+        return (await nativeGetFile.call(handle)).size
+      } catch {
+        return null
+      }
+    },
+    async readBase64(name) {
+      const handle = await (await root()).getFileHandle(name)
+      const bytes = new Uint8Array(await (await nativeGetFile.call(handle)).arrayBuffer())
+      let binary = ""
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+      }
+      return btoa(binary)
+    },
   }
 
   Object.defineProperty(window, args.bridge, { configurable: true, value: bridge })
@@ -613,5 +710,17 @@ export async function installFilePicker(
       return call("bytesRead", name)
     },
     resetBytesRead: () => call("resetBytesRead"),
+    async queueSave(...entries) {
+      await call(
+        "queueSave",
+        entries.map((entry) => (entry === "cancel" ? null : entry))
+      )
+    },
+    saves: () => call("saves"),
+    lastSuggestedName: () => call("lastSuggestedName"),
+    fileSize: (name) => call("fileSize", name),
+    async readFile(name) {
+      return Buffer.from(await call("readBase64", name), "base64")
+    },
   }
 }

@@ -369,24 +369,38 @@ test("a message the engine cannot recognise becomes `fatal`, not silence", async
   for (const event of reasons.afterwards) expect(event.type).toBe("fatal")
 })
 
-test("a message the engine recognises but has not built yet says so rather than going quiet", async ({
+test("cancelling, or sending sound, with no export running is answered by nothing at all", async ({
   page,
 }) => {
   await page.goto("/")
 
-  const fatal = await page.evaluate(
+  const seen = await page.evaluate(
     async ({ workerUrl, timebase, frameSize }) => {
       const engine = globalThis.startEngine(workerUrl)
       engine.init(timebase, frameSize)
       await engine.next("ready")
+      const before = engine.seen().length
 
+      // The tail of an export that has already ended: the user's cancel crossing its last message,
+      // a mixer still posting. Neither is a fault, and neither has anything left to answer.
       engine.send({ type: "export-cancel" })
-      return await engine.next("fatal")
+      engine.send({
+        type: "export-audio-chunk",
+        channels: [new Float32Array(4), new Float32Array(4)],
+        startSample: 0,
+        final: false,
+      })
+      engine.send({ type: "export-audio-request", toFrame: 30 })
+      await new Promise((settle) => setTimeout(settle, 500))
+      return engine
+        .seen()
+        .slice(before)
+        .map((event) => event.type)
     },
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE }
   )
 
-  expect(fatal.reason).toContain("export-cancel")
+  expect(seen).toEqual([])
 })
 
 test("a Frame asked for before there is a Scene is reported dropped, not answered", async ({

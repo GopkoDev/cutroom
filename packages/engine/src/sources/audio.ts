@@ -89,6 +89,13 @@ export interface AudioPlayback {
   playhead(frame: Frame): void
   /** A new Scene arrived. Clips whose placement changed restart from the Playhead. */
   scene(scene: Scene): void
+  /**
+   * Settles once every decode of the run has sent all it may for now — it is waiting for the
+   * Playhead to move, or it has ended — so everything up to `LEAD` past the Playhead has been sent.
+   * At once with no run. Playback never needs this: it is how an export, which moves the Playhead
+   * itself, knows a stretch of sound is complete (export/run.ts).
+   */
+  idle(): Promise<void>
 }
 
 /** One playback run: what the decodes read the Playhead from, and how they are told to stop. */
@@ -100,6 +107,14 @@ interface Run {
   cancelled: boolean
   /** Woken whenever the Playhead moves or the run is cancelled. */
   waiters: (() => void)[]
+  /**
+   * Decodes of this run that are working rather than parked on `waiters` or ended. Counted up when
+   * one is started or woken, down when it parks or ends, so that a wake and the resumption it
+   * causes are never seen as idle in between.
+   */
+  active: number
+  /** Woken when `active` reaches zero. */
+  idlers: (() => void)[]
   /** One decode per Clip, by `clipId`, each with the key of the placement it was started for. */
   readonly decodes: Map<string, Decode>
 }
@@ -126,7 +141,22 @@ export function createAudioPlayback(
   let run: Run | null = null
 
   function wake(target: Run): void {
-    for (const waiter of target.waiters.splice(0)) waiter()
+    const woken = target.waiters.splice(0)
+    target.active += woken.length
+    for (const waiter of woken) waiter()
+  }
+
+  /** One decode of `target` stops working, parked or ended. */
+  function rest(target: Run): void {
+    target.active -= 1
+    if (target.active === 0) for (const idler of target.idlers.splice(0)) idler()
+  }
+
+  /** Parks a decode until the Playhead moves or the run is cancelled. */
+  function park(target: Run): Promise<void> {
+    const parked = new Promise<void>((resume) => target.waiters.push(resume))
+    rest(target)
+    return parked
   }
 
   function cancel(decode: Decode): void {
@@ -138,7 +168,10 @@ export function createAudioPlayback(
   function start(target: Run, clip: SceneClip, from: Frame): void {
     const decode: Decode = { key: streamKey(target.timebase, clip), cancelled: false, close() {} }
     target.decodes.set(clip.clipId, decode)
-    decodeClip(target, decode, clip, from).catch(fail)
+    target.active += 1
+    decodeClip(target, decode, clip, from)
+      .catch(fail)
+      .finally(() => rest(target))
   }
 
   async function decodeClip(
@@ -158,7 +191,7 @@ export function createAudioPlayback(
 
     // A Clip further down the Timeline opens no decoder until the Playhead is within `LEAD` of it.
     while (!stopped() && first > target.playhead + target.leadFrames) {
-      await new Promise<void>((resume) => target.waiters.push(resume))
+      await park(target)
     }
     if (stopped()) return
 
@@ -302,7 +335,7 @@ export function createAudioPlayback(
         // Ahead of the Playhead far enough: send what there is, and wait for the clock.
         while (!stopped() && farEnoughAhead()) {
           flush()
-          await new Promise<void>((resume) => target.waiters.push(resume))
+          await park(target)
         }
         if (stopped()) return
 
@@ -349,7 +382,7 @@ export function createAudioPlayback(
       while (!stopped() && (written ?? lowest) < to) {
         while (!stopped() && farEnoughAhead()) {
           flush()
-          await new Promise<void>((resume) => target.waiters.push(resume))
+          await park(target)
         }
         if (stopped()) return
         const from = written ?? lowest
@@ -384,6 +417,8 @@ export function createAudioPlayback(
       playhead: fromFrame,
       cancelled: false,
       waiters: [],
+      active: 0,
+      idlers: [],
       decodes: new Map(),
     }
     run = started
@@ -430,5 +465,11 @@ export function createAudioPlayback(
     }
   }
 
-  return { play, stop: end, playhead, scene: replaceScene }
+  function idle(): Promise<void> {
+    const current = run
+    if (current === null || current.active === 0) return Promise.resolve()
+    return new Promise<void>((settle) => current.idlers.push(settle))
+  }
+
+  return { play, stop: end, playhead, scene: replaceScene, idle }
 }

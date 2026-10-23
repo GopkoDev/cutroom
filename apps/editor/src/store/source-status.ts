@@ -90,6 +90,13 @@ export interface SourceStatusTracker {
   readFailed(sourceId: string, detail: string): void
   /** The handle for a Source, synchronously, for a click handler that must not await first. */
   handleFor(sourceId: string): SourceFileHandle | undefined
+  /**
+   * The Source in the open Project whose file `handle` is — compared with each held handle by
+   * `isSameEntry`, so a different handle to the same file, under any name, is found. For the
+   * export, which must not save over a Source (decisions.md). A Source with no handle here (never
+   * linked in this browser) cannot be compared and is not found.
+   */
+  sourceAt(handle: FileSystemHandle): Promise<string | undefined>
   /** Whether an attach for this Source is in flight — a `source-failed` for it is its reply. */
   isAttaching(sourceId: string): boolean
   /** Stops everything: later answers from storage or the engine are ignored. */
@@ -293,6 +300,22 @@ export function createSourceStatusTracker(options: SourceStatusOptions): SourceS
 
     handleFor(sourceId) {
       return handles.get(sourceId)
+    },
+
+    async sourceAt(handle) {
+      const ids = sourceIds()
+      const matches = await Promise.all(
+        ids.map(async (id) => {
+          const held = handles.get(id)
+          if (held === undefined) return false
+          try {
+            return await held.isSameEntry(handle)
+          } catch {
+            return false // a handle that cannot even be compared is not this file
+          }
+        })
+      )
+      return ids.find((_, index) => matches[index])
     },
 
     isAttaching(sourceId) {

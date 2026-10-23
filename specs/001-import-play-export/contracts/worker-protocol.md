@@ -88,11 +88,38 @@ from a lag. `stopped` closes everything.
 ```
 { type: "export-start", scene: Scene, range: { fromFrame, toFrame },
   video: { codec, bitrate }, audio: { codec, bitrate, sampleRate, channels } | null,
-  writable: FileSystemWritableFileStream }
+  writable: WritableStream }
 ```
 
-Carries its own frozen `Scene`, so later edits cannot affect a running export (FR-019). The
-writable stream is transferred.
+Carries its own frozen `Scene`, so later edits cannot affect a running export (FR-019). Answered
+by exactly one of `export-done`, `export-cancelled`, `export-failed`; one export runs at a time,
+and a second `export-start` while one runs is a `fatal`.
+
+`range` is **half-open**, like a Clip's `startFrame + durationFrames`: `fromFrame` is the first
+Frame exported and `toFrame` the first one not, so the whole Timeline is `{ 0, durationFrames }`.
+The file starts at its own zero — Frame `fromFrame` is at 0 s.
+
+`writable` is **not** the `FileSystemWritableFileStream`: Chrome refuses to transfer one
+(`DataCloneError`, measured). The main thread keeps the file stream and transfers a plain
+`WritableStream` forwarding to it — `forwardingWritable(file)` from `@cutroom/engine` returns it as
+`.writable`, together with `.committed`, a promise that resolves once the file stream's own
+`close()` has committed the file and rejects if it was discarded or a write or the commit failed.
+The worker closes the stream only after a finished export and aborts it on every other ending, so
+nothing but a finished export commits the file.
+
+The export renders through the same `renderScene` as the Preview (Principle III) but on a renderer,
+canvas and decoders of its own, so a Preview being scrubbed or played beside it is undisturbed.
+
+### `export-audio-request`
+
+```
+{ type: "export-audio-request", toFrame: integer }
+```
+
+Asks for the decoded sound of the running export's Clips — its frozen Scene's, not the Preview's —
+for the main thread to mix (ADR 0008: the engine owns the Sources, the main thread owns
+`OfflineAudioContext`). Answered by one `export-audio-pcm` naming the same `toFrame`. Sent with
+`toFrame` increasing. Ignored when no export is running.
 
 ### `export-audio-chunk`
 
@@ -104,14 +131,24 @@ Mixed PCM produced on the main thread by `OfflineAudioContext`, transferred in c
 wraps each chunk in an `AudioSample` and awaits the encoder's backpressure before acknowledging
 with `export-audio-ack`.
 
+`channels` are `export-start.audio.channels` planes at its `sampleRate`, all one length.
+`startSample` counts from the start of the exported stream: its sample 0 is the Timeline's sample
+`frameToSampleIndex(timebase, sampleRate, fromFrame)`, and the stream holds exactly
+`frameToSampleIndex(…, toFrame) − frameToSampleIndex(…, fromFrame)` samples. Chunks are contiguous
+and the last is `final`; a gap, an overlap, a wrong channel count or a stream that ends short fails
+the export (`export-failed`), and samples past the end are dropped. Ignored when no export is
+running — a mixer still posting for an export that has just ended.
+
 ### `export-cancel`
 
 ```
 { type: "export-cancel" }
 ```
 
-The worker aborts encoding, closes the writable stream without finalizing, and replies
-`export-cancelled`. No finished file is left behind (FR-018).
+The worker stops the Frame loop, **aborts** the writable stream — which discards everything written
+to it — and replies `export-cancelled`. No finished file is left behind (FR-018). (Closing it would
+commit a truncated file, which is why Mediabunny's own `output.cancel()` is not what ends it.) With
+no export running there is nothing to cancel and nothing is said.
 
 ## Direction: worker → main
 
@@ -124,10 +161,11 @@ The worker aborts encoding, closes the writable stream without finalizing, and r
 | `frames-dropped` | `{ count }` | Diagnostic only; never surfaced as an error. Requests the worker was sent and did not render: displaced by a newer one while waiting (FR-012), or not servable at all — one asked for before any Scene arrived — since there is no Scene revision to name in a `frame-rendered`. Frames playback skipped without being asked for are `frame-rendered.skipped`. |
 | `audio-pcm` | `{ sourceId, clipId, sampleRate, channels: Float32Array[], startSample }` | Decoded sound of one Clip for playback scheduling, transferred, sent during a playback run up to two seconds ahead of the Playhead. `startSample` is a position **on the Timeline**, on the grid `frameToSampleIndex(timebase, sampleRate, frame)` lays down: the Clip's start and in-point are already applied and the PCM is trimmed to the Frames the Clip covers, so the receiver maps nothing. `sampleRate` is the Source's own. The same `clipId` and `startSample` always carry the same sound, so PCM from a run a seek replaced is still right where it lands; a receiver schedules each sample of a Clip once. No end-of-stream marker: a Clip's sound ends where the Clip does. **Unbroken** (T070): for a Clip whose Source has sound, every sample from the run's first (`fromFrame`, or the Clip's start) to the Clip's end is sent, as silence where the track has none — it starts after the in-point, skips, or ends before the Clip — so a receiver can wait for the sound at the start of a run and know it is waiting for something that will come. A Source without sound sends nothing — silence is valid. |
 | `export-audio-ack` | `{ startSample }` | The chunk was encoded; the main thread may send the next one. This is the backpressure signal — without it the mixer outruns the encoder. |
-| `export-progress` | `{ framesDone, framesTotal }` | Drives the progress display. |
-| `export-done` | `{ bytes }` | The stream was finalized and closed. |
-| `export-cancelled` | `{}` | Aborted cleanly. |
-| `export-failed` | `{ reason }` | No file is presented as complete. |
+| `export-audio-pcm` | `{ toFrame, chunks: { sourceId, clipId, sampleRate, channels, startSample }[] }` | The answer to `export-audio-request`: every chunk of the export Clips' decoded sound not sent in an earlier answer that starts before `toFrame` (and possibly some beyond it — the decode runs up to two seconds ahead). Each chunk is exactly what `audio-pcm` carries — Timeline-positioned, unbroken, at the Source's rate — from the Frame before `fromFrame` to each Clip's end. Transferred; may be empty. |
+| `export-progress` | `{ framesDone, framesTotal }` | Drives the progress display. Sent at most every 100 ms, and always for the first (0) and last Frame. |
+| `export-done` | `{ bytes }` | The worker finalized the file and closed its stream; `bytes` is its size. A finished file is this **and** `forwardingWritable(...).committed` resolving: the commit happens on the main thread, and a write or commit failing there can reach the worker too late or never (measured: a destination whose every write failed still produced `export-done`). |
+| `export-cancelled` | `{}` | Aborted cleanly: the stream was aborted, so nothing was committed. |
+| `export-failed` | `{ reason }` | No file is presented as complete: the stream was aborted. Covers an encoder error, a destination that stopped accepting writes, a malformed audio stream, and a Source that went Offline or was relinked mid-export (the file would no longer be the Timeline as it stood at the start). |
 | `fatal` | `{ reason }` | The worker cannot continue; the UI must say so rather than appear frozen. |
 
 ## Invariants

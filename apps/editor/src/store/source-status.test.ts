@@ -248,3 +248,54 @@ describe("after dispose", () => {
     expect(store.getState().sourceStatus).toEqual({})
   })
 })
+
+describe("which Source a file belongs to (the export's guard)", () => {
+  /** A handle that is the same entry as exactly the handles in `same`. */
+  function entry(name: string, same: () => readonly unknown[]) {
+    const self: SourceFileHandle = {
+      kind: "file",
+      name,
+      isSameEntry: vi.fn(async (other: unknown) => other === self || same().includes(other)),
+    } as unknown as SourceFileHandle
+    return self
+  }
+
+  it("finds the Source by isSameEntry, whatever the destination is called", async () => {
+    let aliases: unknown[] = []
+    const held = entry(SOURCE.name, () => aliases)
+    const { tracker } = setup([{ status: "linked", handle: held, file: fileOf() }])
+    await tracker.checkAll()
+
+    // Another handle to the same file — the save picker's, under another name — is still it.
+    const destination = entry("renamed.mp4", () => [held])
+    aliases = [destination]
+    expect(await tracker.sourceAt(destination)).toBe(SOURCE.id)
+    expect(await tracker.sourceAt(entry("other.mp4", () => []))).toBeUndefined()
+  })
+
+  it("finds an Offline Source too: its file is still its file", async () => {
+    const held = entry(SOURCE.name, () => [])
+    const { tracker } = setup([
+      { status: "offline", reason: "needs-permission", handle: held, permission: "prompt" },
+    ])
+    await tracker.checkAll()
+    expect(await tracker.sourceAt(held)).toBe(SOURCE.id)
+  })
+
+  it("finds nothing for a Source with no handle here, or a comparison that throws", async () => {
+    const none = setup([{ status: "offline", reason: "never-linked-here" }])
+    await none.tracker.checkAll()
+    expect(await none.tracker.sourceAt(entry("x.mp4", () => []))).toBeUndefined()
+
+    const broken = {
+      kind: "file",
+      name: SOURCE.name,
+      isSameEntry: vi.fn(async () => {
+        throw new DOMException("gone", "NotFoundError")
+      }),
+    } as unknown as SourceFileHandle
+    const throwing = setup([{ status: "linked", handle: broken, file: fileOf() }])
+    await throwing.tracker.checkAll()
+    expect(await throwing.tracker.sourceAt(entry("x.mp4", () => []))).toBeUndefined()
+  })
+})

@@ -143,6 +143,21 @@ export function frameToSeconds(timebase: Timebase, frame: number): number {
 }
 
 /**
+ * The Timebase as a float number of Frames per second, for an API that will take nothing else — a
+ * muxer's track metadata, which derives its own integer timescale from it.
+ *
+ * Like `frameToSeconds`, a boundary crossing and the one place this float is the answer. It is
+ * never used to compute a position: Frame times still go through `frameToSeconds`. A muxer given
+ * 30000/1001 as a float recovers the exact ratio (Mediabunny approximates its inverse with a
+ * denominator up to 10⁶, which finds 1001/30000 exactly), so the file's own clock ticks once per
+ * Frame rather than rounding every Frame onto a grid of its own choosing.
+ */
+export function framesPerSecond(timebase: Timebase): number {
+  assertRatio(timebase, "framesPerSecond", "Timebase", 1)
+  return timebase.numerator / timebase.denominator
+}
+
+/**
  * The Frame that a time in seconds falls on.
  *
  * ROUNDING RULE — this is the only rounding of a time value in Cutroom (Principle II), so it is
@@ -497,8 +512,10 @@ export function frameToTimecode(timebase: Timebase, frame: number): Timecode {
 // During playback the master clock is an `AudioContext`'s `currentTime`: seconds on the audio
 // hardware's clock, a float that Web Audio hands us and takes back. A **playback anchor** pins one
 // Frame of the Timeline to one instant on that clock — "Frame 120 begins to sound at 3.25" — and the
-// three functions below are the only conversions between the two clocks: which Frame is playing at
-// a context time, when a Frame begins, and when a sample of the Timeline's sound begins.
+// functions below are the only conversions between the two clocks: which Frame is playing at a
+// context time, when a Frame begins, when a sample of the Timeline's sound begins, and — for an
+// offline render, whose clock starts at a sample rather than a Frame — the anchor that makes a
+// given sample begin at 0.
 //
 // Every answer is measured from the anchor, never accumulated from the previous answer, so the error
 // is one float rounding whatever the distance from the anchor — the same property the rest of this
@@ -640,4 +657,59 @@ export function timelineSampleToContextTime(
   const numerator =
     BigInt(sample) * rate - BigInt(anchor.frame) * BigInt(timebase.denominator) * samplesPerSecond
   return anchoredSeconds(anchor, numerator, rate * samplesPerSecond)
+}
+
+/**
+ * The anchor on `frame` under which Timeline sample `sample` (at `sampleRate`) begins at context
+ * time 0 — the anchor for an `OfflineAudioContext` that renders the Timeline's sound from `sample`
+ * on, whose first output sample is that sample (T077's segmented export mix).
+ *
+ * Playback anchors a Frame to an instant; an offline render has to anchor a *sample*, because its
+ * output is a sample buffer that must butt exactly against the previous segment's. A Frame boundary
+ * falls between two samples in general (1601.6 samples per Frame at 30000/1001 and 48 kHz), so the
+ * anchor's instant is the exact signed distance from `frame`'s start to `sample`'s:
+ *
+ *     contextSeconds = frame / timebase − sample / sampleRate
+ *
+ * computed as one exact rational and divided once, split the way `timelineSampleToContextTime`
+ * splits it. When the two are less than a second apart, which is how the mix uses it, that function
+ * then gives exactly 0 for `sample` — the two roundings are of one value and its negation — and every
+ * other sample's instant is measured from a few milliseconds away, so its error is a rounding of a
+ * number the size of the segment, not of the whole Timeline.
+ *
+ * `frame` may be before `sample`'s own Frame: the mix anchors a Frame early so that sound starting
+ * just before the segment, which a resampler interpolates from, is not trimmed away by the graph.
+ */
+export function anchorAtTimelineSample(
+  timebase: Timebase,
+  sampleRate: number,
+  sample: number,
+  frame: number
+): PlaybackAnchor {
+  const where = "anchorAtTimelineSample"
+  assertRatio(timebase, where, "Timebase", 1)
+  if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0) {
+    throw new RangeError(
+      `${where}: sampleRate must be a positive safe integer, got ${show(sampleRate)}`
+    )
+  }
+  if (!Number.isSafeInteger(sample) || sample < 0) {
+    throw new RangeError(
+      `${where}: sample must be a non-negative safe integer, got ${show(sample)}`
+    )
+  }
+  assertFrame(frame, where)
+
+  const rate = BigInt(timebase.numerator)
+  const samplesPerSecond = BigInt(sampleRate)
+  const numerator =
+    BigInt(frame) * BigInt(timebase.denominator) * samplesPerSecond - BigInt(sample) * rate
+  return {
+    frame,
+    contextSeconds: anchoredSeconds(
+      { frame, contextSeconds: 0 },
+      numerator,
+      rate * samplesPerSecond
+    ),
+  }
 }

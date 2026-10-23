@@ -16,17 +16,20 @@
 // converts no time and rounds no number — `packages/model` owns every conversion (R7, Principle
 // II), and the main thread owns the Project (invariant 1). The worker's state is a renderer, the
 // scheduler every Render and transport change goes through, the playback decode of sound, the
-// newest Scene, and that Scene's revision.
+// newest Scene, that Scene's revision, and the export running beside them, if one is.
 
 import type { Scene } from "@cutroom/model"
 
 import { probeCapabilities } from "./capabilities"
 import { createSceneRenderer, type SceneRenderer } from "./compose/renderer"
+import { startExport, type ExportRun } from "./export/run"
 import { createScheduler, type Scheduler } from "./playback/scheduler"
 import { createAudioPlayback } from "./sources/audio"
 import { attachSource, releaseSource } from "./sources/attach"
 import type {
   EngineEvent,
+  ExportAudioChunkMessage,
+  ExportStartMessage,
   InitMessage,
   RenderFrameMessage,
   SceneMessage,
@@ -109,6 +112,13 @@ const audio = createAudioPlayback((event, transfer) => send(event, transfer), fa
  */
 let scene: Scene | null = null
 let sceneRevision: number | null = null
+
+/**
+ * The export running now, if one is (export/run.ts). One at a time (spec assumption). Cleared the
+ * moment it reports how it ended, not when it has finished tidying up, so a main thread that starts
+ * the next export on hearing `export-cancelled` is not refused for one already over.
+ */
+let exportRun: ExportRun | null = null
 
 // ---------------------------------------------------------------------------------------------
 // Handlers
@@ -221,15 +231,63 @@ function changeTransport(message: TransportMessage): Promise<void> {
 }
 
 /**
+ * Starts an export over the Scene it carries — never the worker's own, which keeps moving as the
+ * user edits (FR-019). Its own renderer and decoders too, so the Preview keeps working beside it.
+ *
+ * Every way an export can end is a message (`export-done`, `export-cancelled`, `export-failed`),
+ * not a `fatal`: an encoder that refuses or a disk that fills is the export's failure, and the
+ * engine carries on. A second `export-start` while one runs is a different thing — the client
+ * refuses to send one, so it is a broken caller, and `fatal` says so; its stream is aborted so
+ * that refusing it cannot leave a file of its own behind.
+ */
+function beginExport(message: ExportStartMessage): void {
+  if (exportRun !== null) {
+    void message.writable.abort().catch(() => undefined)
+    throw new Error("export-start: an export is already running; one runs at a time")
+  }
+  let run: ExportRun | null = null
+  const ended = (event: EngineEvent): void => {
+    if (exportRun === run) exportRun = null
+    send(event)
+  }
+  run = startExport(message, {
+    progress: (framesDone, framesTotal) =>
+      send({ type: "export-progress", framesDone, framesTotal }),
+    audioAck: (startSample) => send({ type: "export-audio-ack", startSample }),
+    sourceSound: (toFrame, chunks, transfer) =>
+      send({ type: "export-audio-pcm", toFrame, chunks }, transfer),
+    done: (bytes) => ended({ type: "export-done", bytes }),
+    cancelled: () => ended({ type: "export-cancelled" }),
+    failed: (reason) => ended({ type: "export-failed", reason }),
+  })
+  exportRun = run
+}
+
+/**
+ * One chunk of the export's mix. With no export running it is dropped: the main thread's mixer can
+ * still be posting chunks for an export that has just been cancelled or has failed, and nobody is
+ * waiting for those to be encoded.
+ */
+function exportAudio(message: ExportAudioChunkMessage): void {
+  exportRun?.audioChunk(message)
+}
+
+/**
+ * Stops the running export; it answers `export-cancelled` when its file has been discarded. With
+ * none running there is nothing to cancel and nothing is said — the export has already answered
+ * with how it ended, and a second answer would be about nothing.
+ */
+function cancelExport(): void {
+  exportRun?.cancel()
+}
+
+/**
  * Every message the main thread can send, in one switch.
  *
- * The cases with no implementation yet throw, and that is the honest answer rather than a
- * placeholder. The protocol has no "recognised but not supported" reply, and each of the plausible
- * substitutes says something false: `source-failed` would blame the user's file for a decoder this
- * build has not written, and a silent no-op would leave the main thread waiting for a reply that
- * is never coming. A `fatal` naming the message is the only one that cannot be mistaken for a real
- * answer — and a main thread sending a message this worker cannot handle is a version mismatch
- * between the two halves of the protocol, which is not a state to carry on from.
+ * Anything that is not a message of the protocol throws and becomes a `fatal`: the protocol has
+ * no "not understood" reply, a silent no-op would leave the main thread waiting for an answer that
+ * is never coming, and a main thread sending a message this worker cannot handle is a version
+ * mismatch between the two halves of the protocol, which is not a state to carry on from.
  */
 async function handle(message: ToEngine): Promise<void> {
   switch (message.type) {
@@ -261,11 +319,22 @@ async function handle(message: ToEngine): Promise<void> {
       return
 
     case "export-start":
+      beginExport(message)
+      return
+
     case "export-audio-chunk":
+      exportAudio(message)
+      return
+
+    case "export-audio-request":
+      // For the running export's own frozen Scene. With none running, the mixer asking is the tail
+      // of an export that has already ended, like a stray `export-audio-chunk`.
+      exportRun?.audioRequest(message.toFrame)
+      return
+
     case "export-cancel":
-      throw new Error(
-        `${message.type}: recognised, but this build of the engine does not implement it yet`
-      )
+      cancelExport()
+      return
 
     default: {
       // Exhaustiveness, checked by the compiler rather than by review: every member of `ToEngine`

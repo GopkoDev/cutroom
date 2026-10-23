@@ -36,3 +36,28 @@ and the code together.
   server hot-reloads into the page under test, which corrupted earlier numbers;
   `CUTROOM_E2E_SLOW` now picks port 5191 and never reuses a server, and `CUTROOM_E2E_PORT` gives
   any run a fresh one.
+
+## Export
+
+- **The export mix is 48 kHz, not the Source's sample rate** (agent, accepted, 2026-10-23). No
+  Source records its rate, a Timeline can mix rates, and Web Audio resamples anyway; 48 kHz is
+  the video convention. 44.1 kHz and then Opus are tried before declaring no sound encoder. T073.
+- **Export qualities are probed on the main thread when the dialog opens** (agent, accepted,
+  2026-10-23). The engine's `ready` probe runs before a Project exists, at the wrong size and
+  bitrate. Mirroring Mediabunny's encoder config is the cost; a `probe-export` engine message is
+  the better long-term home. T073.
+- **A Timeline with no sound exports without an audio track and without asking** (agent,
+  accepted, 2026-10-23). FR-024's explicit choice is for sound that would be lost; here none would.
+  T074.
+- **Saving over a linked Source is refused** (autonomous, 2026-10-23). Exporting onto the file a
+  Source reads from would destroy the Source mid-export. The save handle is compared with every
+  Source's handle through `FileSystemHandle.isSameEntry` before the export starts. T075.
+- **Opus exports carry no edit list** (autonomous, 2026-10-23). Opus is only the fallback when
+  AAC cannot be encoded; its pre-skip is honoured by Chrome and ffmpeg, and AVFoundation's 6.5 ms
+  lateness is accepted for a fallback rather than adding an Opus edit path. ADR 0014.
+- **Open risk: Chrome's save picker and existing files** (autonomous, 2026-10-23). The
+  overwrite guard runs after the save picker answers. If real Chrome empties an existing file the
+  moment it is picked, a Source chosen as destination would already be damaged. The picker
+  stand-in cannot show this; T096's manual walk checks it in real Chrome, and if it does, the
+  answer is to compare against Sources by name before the picker can be accepted (a
+  `startIn`/suggested-name warning) — recorded here rather than guessed at.
