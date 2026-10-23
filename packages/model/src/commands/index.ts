@@ -107,6 +107,19 @@ export interface SplitClipsCommand extends CommandFields {
   readonly cuts: readonly { readonly clipId: string; readonly newClipId: string }[]
 }
 
+/**
+ * Moves each named Clip by `delta` Frames, which may be negative. `toTrackId` is `null` to keep each
+ * Clip on its own Track, or a Track id to put them all on that Track — which needs them all to start
+ * on one Track. Each Clip keeps its id, so the engine's per-Clip state survives. Whole or refused:
+ * one Clip that cannot land stops them all.
+ */
+export interface MoveClipsCommand extends CommandFields {
+  readonly type: "move-clips"
+  readonly clipIds: readonly string[]
+  readonly delta: number
+  readonly toTrackId: string | null
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
   | CreateProjectCommand
@@ -115,6 +128,7 @@ export type Command =
   | RelinkSourceCommand
   | TrimClipCommand
   | SplitClipsCommand
+  | MoveClipsCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).

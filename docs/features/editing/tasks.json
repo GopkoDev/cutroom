@@ -122,7 +122,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T006-check-move-and-move-clips.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T007",

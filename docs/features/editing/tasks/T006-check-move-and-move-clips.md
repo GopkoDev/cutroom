@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/editing/placement.ts", "packages/model/src/edit
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T006 — Add the checkMove placement rule and the move-clips command
 

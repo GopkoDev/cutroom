@@ -32,6 +32,7 @@ import { enablePatches, produceWithPatches, type Draft, type Patch } from "immer
 
 import { isTimestamp } from "../document/parse"
 import { CURRENT_SCHEMA_VERSION, type Clip, type Project } from "../document/types"
+import { checkMove } from "../editing/placement"
 import { splitRefusal } from "../editing/split"
 import { trimRefusal } from "../editing/limits"
 import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
@@ -41,6 +42,7 @@ import type {
   Command,
   CreateProjectCommand,
   ImportSourceCommand,
+  MoveClipsCommand,
   RefusalReason,
   RelinkSourceCommand,
   SplitClipsCommand,
@@ -497,6 +499,65 @@ function splitClips(project: Project, command: SplitClipsCommand): CommandResult
   })
 }
 
+function moveClips(project: Project, command: MoveClipsCommand): CommandResult {
+  expectStamp(command)
+  if (!Number.isSafeInteger(command.delta)) {
+    refuse(command.type, "invalid", `delta must be a whole number, got ${String(command.delta)}`)
+  }
+  const named = new Set<string>()
+  for (const id of command.clipIds) {
+    expectIdentifier(command.type, id, "clipIds")
+    if (named.has(id)) {
+      refuse(command.type, "invalid", `${JSON.stringify(id)} is named more than once`)
+    }
+    named.add(id)
+  }
+  if (command.toTrackId !== null) expectIdentifier(command.type, command.toTrackId, "toTrackId")
+
+  // The rule decides, so the command is refused exactly when `checkMove` says no.
+  const verdict = checkMove(project, command.clipIds, command.delta, command.toTrackId)
+  if (!verdict.ok) {
+    refuse(
+      command.type,
+      verdict.reason,
+      `the Clips cannot move by ${command.delta} Frames — see checkMove`
+    )
+  }
+
+  const toIndex =
+    command.toTrackId === null
+      ? -1
+      : project.timeline.tracks.findIndex((track) => track.id === command.toTrackId)
+  // Where each moving Clip comes from and lands, by Track index.
+  const moves: { clip: Clip; from: number; to: number }[] = []
+  for (const [from, track] of project.timeline.tracks.entries()) {
+    for (const clip of track.clips) {
+      if (named.has(clip.id)) moves.push({ clip, from, to: toIndex === -1 ? from : toIndex })
+    }
+  }
+  if (moves.length === 0 || (command.delta === 0 && moves.every((m) => m.from === m.to))) {
+    return { project, patches: [], inversePatches: [] }
+  }
+
+  const touched = new Set(moves.flatMap((m) => [m.from, m.to]))
+  return write(project, (draft) => {
+    for (const index of touched) {
+      const track = draft.timeline.tracks[index]
+      if (track === undefined) continue
+      const kept = track.clips.filter((clip) => !named.has(clip.id))
+      const arriving = moves
+        .filter((m) => m.to === index)
+        .map((m) => ({ ...m.clip, startFrame: m.clip.startFrame + command.delta }))
+      // Each Track stays ordered by `startFrame`; the landing Clips cannot tie with a staying one.
+      track.clips = [...kept, ...arriving].sort(
+        (a, b) => a.startFrame - b.startFrame
+      ) as typeof track.clips
+    }
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -534,6 +595,8 @@ export function applyCommand(project: Project | null, command: Command): Command
       return trimClip(requireProject(project, command), command)
     case "split-clips":
       return splitClips(requireProject(project, command), command)
+    case "move-clips":
+      return moveClips(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(
