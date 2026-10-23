@@ -52,6 +52,12 @@ export async function installAudioNodeLog(page: Page): Promise<void> {
     const start = proto.start
     const stop = proto.stop
     proto.start = function (this: AudioBufferSourceNode, when = 0, offset = 0, duration?: number) {
+      // Only what is heard: the export's mix and the limiter's delay measurement start nodes in
+      // an OfflineAudioContext, on a clock of their own, which is not Playback.
+      if (!(this.context instanceof AudioContext)) {
+        start.call(this, when, offset, duration)
+        return
+      }
       scope.__audioContext = this.context
       const entry: Entry = {
         when,

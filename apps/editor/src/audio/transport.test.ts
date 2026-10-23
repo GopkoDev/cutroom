@@ -552,7 +552,7 @@ describe("the limiter's measured delay (ADR 0022)", () => {
   }
 
   it("measures once, for the live context's sample rate, however many times it plays", async () => {
-    const measure = vi.fn((rate: number) => Promise.resolve(rate > 0 ? DELAY : DELAY))
+    const measure = vi.fn<(rate: number) => Promise<number>>(() => Promise.resolve(DELAY))
     const { store, engine, context, transport } = withMeasure(measure)
     context.sampleRate = 44_100
     transport.play()

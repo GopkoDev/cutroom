@@ -279,8 +279,13 @@ export async function streamExportAudio(options: StreamExportAudioOptions): Prom
   /**
    * Mixes Timeline samples `[first, last)`, or `null` for silence: the sound of the Frames from
    * `anchorFrame` (at or before `first`'s) to `endFrame` (the first at or after `last`'s), and a
-   * Frame past it — what a resampler interpolates the edge samples from. `first` is the context's
-   * first sample, the pre-roll included.
+   * Frame past it — what a resampler interpolates the edge samples from.
+   *
+   * The context renders `PREROLL_SECONDS` more than its share, before `first`: its anchor is moved
+   * that many whole seconds later on its own clock, so context second `PREROLL_SECONDS` is Timeline
+   * sample `first`. Before the Timeline's start that lead-in is silence; the point is that the
+   * limiter has run for longer than its release by the time `first` sounds, and that the measured
+   * delay always has room to be compensated — the first segment included (ADR 0022).
    */
   async function mix(
     first: number,
@@ -295,8 +300,12 @@ export async function streamExportAudio(options: StreamExportAudioOptions): Prom
     })
     if (sounding.length === 0) return null
 
-    const context = createContext(last - first, sampleRate)
-    const anchor = anchorAtTimelineSample(timebase, sampleRate, first, anchorFrame)
+    const context = createContext(preroll + last - first, sampleRate)
+    const atFirst = anchorAtTimelineSample(timebase, sampleRate, first, anchorFrame)
+    const anchor = {
+      frame: atFirst.frame,
+      contextSeconds: atFirst.contextSeconds + PREROLL_SECONDS,
+    }
     const graph = createAudioGraph({
       context,
       lookaheadSeconds: Number.POSITIVE_INFINITY,
@@ -313,8 +322,8 @@ export async function streamExportAudio(options: StreamExportAudioOptions): Prom
   try {
     let first = streamStart
     // A Frame early: sound just before the segment is what a resampler interpolates its first
-    // samples from, and the graph trims everything before its anchor's Frame.
-    // and a pre-roll's worth of Frames earlier still, where the first segment has the Timeline.
+    // samples from, and the graph trims everything before its anchor's Frame — and a pre-roll's
+    // worth of Frames earlier still, so the limiter hears what came before the segment.
     let anchorFrame = Math.max(0, fromFrame - 1 - prerollFrames)
     let k = 1
     while (first < streamEnd) {
@@ -326,10 +335,8 @@ export async function streamExportAudio(options: StreamExportAudioOptions): Prom
       // mixed and sent.
       await pullThrough(boundary(k + 1).frame + 1)
       signal.throwIfAborted()
-      // The context starts a pre-roll early, or at Timeline sample 0; `lead` samples are dropped.
-      const contextFirst = Math.max(0, first - preroll)
-      const lead = first - contextFirst
-      const rendered = await mix(contextFirst, last, anchorFrame, endFrame)
+      // The context starts a pre-roll early; those `preroll` samples are dropped.
+      const rendered = await mix(first, last, anchorFrame, endFrame)
       void pullThrough(boundary(k + 2).frame + 1)
 
       // The next segment starts on a whole second, between two Frames in general: anchored two
@@ -346,7 +353,7 @@ export async function streamExportAudio(options: StreamExportAudioOptions): Prom
         const length = Math.min(chunkSamples, last - first - offset)
         const channels = Array.from({ length: EXPORT_CHANNELS }, (_, channel) => {
           const plane = new Float32Array(length)
-          rendered?.copyFromChannel(plane, channel, lead + offset)
+          rendered?.copyFromChannel(plane, channel, preroll + offset)
           return plane
         })
         const startSample = first + offset - streamStart

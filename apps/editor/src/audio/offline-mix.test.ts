@@ -324,9 +324,10 @@ describe("streamExportAudio", () => {
       range: { fromFrame: 0, toFrame: 900 },
       pcm: fakePcm(VIDEO, [{ clip: clip("a", 0, 900), channels: [() => 0.5] }], 16_384),
     })
-    // The first segment has no Timeline before it; the others render a pre-roll earlier.
+    // Every segment renders a pre-roll earlier — the first too, over silence before the Timeline,
+    // so the limiter's delay has room to be compensated from its very first sample.
     expect(contexts.map((context) => context.length)).toEqual([
-      480_000,
+      480_000 + RATE,
       480_000 + RATE,
       480_000 + RATE,
     ])
@@ -511,16 +512,18 @@ describe("the pre-roll and the limiter's delay (ADR 0022)", () => {
     expect(PREROLL_SECONDS).toBe(1)
   })
 
-  it("renders each segment a pre-roll longer, only as long as the Timeline allows at the start", async () => {
+  it("renders every segment a pre-roll longer, the first included", async () => {
     const { contexts } = await mixAll({
       scene: sceneOf(VIDEO, loud.clip),
       range: { fromFrame: 0, toFrame: 150 },
       pcm: fakePcm(VIDEO, [loud]),
       segmentSeconds: 2,
     })
-    // 5 s in segments [0,2) [2,4) [4,5): nothing before the first, a full second before the others.
+    // 5 s in segments [0,2) [2,4) [4,5), each with a full second before it. Before the Timeline's
+    // start that second is silence; it must still be there, or the first samples a measured delay
+    // moves earlier would have nowhere to go (found in the browser: a click 192 samples late).
     expect(contexts.map((context) => context.length)).toEqual([
-      2 * RATE,
+      2 * RATE + RATE,
       2 * RATE + RATE,
       1 * RATE + RATE,
     ])
@@ -530,9 +533,9 @@ describe("the pre-roll and the limiter's delay (ADR 0022)", () => {
       range: { fromFrame: 15, toFrame: 60 },
       pcm: fakePcm(VIDEO, [loud]),
     })
-    // Starting half a second in: only half a second of Timeline lies before it.
+    // Starting half a second in: the pre-roll is a full second all the same.
     expect(shortRun.contexts.map((context) => context.length)).toEqual([
-      60 * (RATE / 30) - 15 * (RATE / 30) + RATE / 2,
+      60 * (RATE / 30) - 15 * (RATE / 30) + RATE,
     ])
   })
 
@@ -586,17 +589,22 @@ describe("the pre-roll and the limiter's delay (ADR 0022)", () => {
     // Chunks that sound later in the segment (the pre-roll's own start is at the context's start)
     // are placed `delay` earlier, at the same offset into their buffers.
     let compared = 0
+    // Matched by where in its buffer each node starts, not by position: a piece that would end
+    // before the context's start is simply not made once it moves earlier.
     shifted.contexts.forEach((context, index) => {
       const plain = base.contexts[index]!.sources
-      context.sources.forEach((source, n) => {
-        const was = plain[n]!.started!
-        const now = source.started!
-        if (was.when > delay) {
-          expect(now.when).toBeCloseTo(was.when - delay, 9)
-          expect(now.offset).toBeCloseTo(was.offset, 9)
-          compared += 1
-        }
-      })
+      for (const source of plain) {
+        const was = source.started!
+        if (was.when <= delay) continue
+        const now = context.sources.find(
+          (candidate) =>
+            Math.abs(candidate.started!.offset - was.offset) < 1e-9 &&
+            Math.abs(candidate.started!.when - (was.when - delay)) < 1e-9
+        )
+        expect(now, `a node at offset ${was.offset}`).toBeDefined()
+        expect(now!.started!.when).toBeCloseTo(was.when - delay, 9)
+        compared += 1
+      }
     })
     expect(compared).toBeGreaterThan(0)
   })

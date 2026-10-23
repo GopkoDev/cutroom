@@ -211,8 +211,10 @@ export function createTransport({
     context: TransportAudioContext
     graph: AudioGraph
     clock: AudioClock
-    /** The limiter's delay once known; `null` while it is being measured. */
+    /** Whether the limiter's delay has been measured (or given up on) yet. */
     delayKnown: boolean
+    /** The limiter's delay in seconds, applied at the next anchor — never during a run. */
+    delay: number
   } | null = null
   let playing: Playing | null = null
   // The last Playhead this module wrote, so a write it did not make can be told apart (T066).
@@ -223,15 +225,24 @@ export function createTransport({
       const context = createContext()
       const graph = createAudioGraph({ context })
       graph.setScene(store.getState().scene)
-      const made = { context, graph, clock: createAudioClock({ context }), delayKnown: false }
+      const made = {
+        context,
+        graph,
+        clock: createAudioClock({ context }),
+        delayKnown: false,
+        delay: 0,
+      }
       audio = made
       const measure =
         measureDelay ??
         (typeof OfflineAudioContext === "undefined" ? null : measureBrowserLimiterDelay)
+      // The delay is applied when Playback is next anchored, not when the measurement lands: a
+      // run already sounding without it (the start waited as long as it may) would otherwise have
+      // its later chunks moved earlier than its earlier ones, which is sound given twice.
       const known = (seconds: number) => {
         if (made.delayKnown) return
         made.delayKnown = true
-        graph.setOutputDelay(seconds)
+        made.delay = seconds
         if (audio === made) tryToStart()
       }
       if (measure === null) {
@@ -287,6 +298,7 @@ export function createTransport({
     // nothing left but starting nodes, which is what the margin has to cover. With no session
     // running (a fresh start) `seek` is `start`.
     audio.graph.prepare(gate.held())
+    audio.graph.setOutputDelay(audio.delay)
     audio.graph.seek(audio.clock.start(scene.timebase, playing.fromFrame))
     for (const chunk of gate.held()) audio.graph.receive(chunk)
   }

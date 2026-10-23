@@ -341,7 +341,7 @@ export function createAudioGraph({
       // started — for no time at all — so the placement of the pieces after it does not depend on
       // whether the delay swallowed one (a piece's node is never skipped for the delay alone).
       // A piece whose sound would emerge from the limiter after the end is not worth a node.
-      if (begins + delay >= endSeconds || ends + delay <= from) continue
+      if (ends <= from) continue
 
       const node = context.createBufferSource()
       node.buffer = bufferFor(chunk)
@@ -351,7 +351,7 @@ export function createAudioGraph({
         node.disconnect()
       }
       scheduled.set(node, { chunk, cutAt: null })
-      node.start(from, from - at0, Math.max(0, ends - from))
+      node.start(from, from - at0, ends - from)
     }
   }
 

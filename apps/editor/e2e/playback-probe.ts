@@ -241,6 +241,12 @@ function installProbe({ key, workerLoad }: { key: string; workerLoad: WorkerLoad
   const start = proto.start
   const stop = proto.stop
   proto.start = function (this: AudioBufferSourceNode, when = 0, offset = 0, duration?: number) {
+    // Playback only: the limiter's delay measurement and the export's mix start nodes in an
+    // OfflineAudioContext, on a clock of their own (ADR 0022), and they are not what is heard.
+    if (!(this.context instanceof AudioContext)) {
+      start.call(this, when, offset, duration)
+      return
+    }
     const buffer = this.buffer
     const rate = buffer?.sampleRate ?? this.context.sampleRate
     const length = buffer?.length ?? 0
