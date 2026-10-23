@@ -231,7 +231,7 @@
         "packages/model/package.json"
       ],
       "file": "docs/features/editing/tasks/T011-frame-accuracy-property-tests.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T012",

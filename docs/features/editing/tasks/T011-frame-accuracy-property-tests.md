@@ -9,8 +9,8 @@ files_hint: ["packages/model/test/editing.property.test.ts", "packages/model/pac
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T011 — Pin Frame accuracy and rule-command pairing with model property tests
 
