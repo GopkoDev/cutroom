@@ -59,7 +59,25 @@
 // ## One construction for playback and export
 //
 // The graph is written against the part of `BaseAudioContext` it uses, not against `AudioContext`,
-// so the export mix can build the same graph on an `OfflineAudioContext` (Principle III).
+// so the export mix can build the same graph on an `OfflineAudioContext` (Principle III). The master
+// bus below is part of that one construction, so Playback and Export mix alike.
+//
+// ## The master bus and the limiter (AC-23, ADR 0022)
+//
+// Every Clip's gain node feeds one `DynamicsCompressorNode`, set as a brick-wall limiter (`LIMITER`),
+// and that feeds the destination. Two Clips that sound together on different Tracks are summed
+// there, each at its own level; below full scale the limiter changes no level, and where the sum
+// would pass it the limiter pulls it down instead of letting it clip. There is exactly one, made
+// with the graph, so a Scene with no Clip yet still has its bus and the sum of any number of Clips
+// meets the same limiter.
+//
+// The limiter looks ahead, so what it emits is late by a fixed delay that depends on the context's
+// sample rate. The delay is measured, not assumed (`limiter-delay.ts`), and the graph is told it as
+// `outputDelaySeconds` (or later `setOutputDelay`, once a measurement arrives). Every instant the
+// graph schedules — a node's start, the instant a seek cuts the old position — is moved that many
+// seconds earlier, so the sound leaves the limiter at the instant the clock and the picture say.
+// Only instants move: the offset into a buffer stays what the unshifted placement would give, so
+// the same samples sound. A chunk too late to start earlier starts now, further into its buffer.
 
 import {
   frameToSampleIndex,
@@ -99,6 +117,30 @@ export interface GraphGain extends GraphNode {
   readonly gain: { value: number }
 }
 
+/** The slice of `DynamicsCompressorNode` the graph sets. */
+export interface GraphCompressor extends GraphNode {
+  readonly threshold: { value: number }
+  readonly knee: { value: number }
+  readonly ratio: { value: number }
+  readonly attack: { value: number }
+  readonly release: { value: number }
+}
+
+/**
+ * The master bus's limiter (ADR 0022): threshold 0 dBFS, no knee, ratio 20, attack 1 ms, release
+ * 100 ms (seconds for the last two). The delay measurement renders through the same settings.
+ */
+export const LIMITER = { threshold: 0, knee: 0, ratio: 20, attack: 0.001, release: 0.1 } as const
+
+/** Sets `compressor` to the limiter's settings. */
+export function configureLimiter(compressor: GraphCompressor): void {
+  compressor.threshold.value = LIMITER.threshold
+  compressor.knee.value = LIMITER.knee
+  compressor.ratio.value = LIMITER.ratio
+  compressor.attack.value = LIMITER.attack
+  compressor.release.value = LIMITER.release
+}
+
 export interface GraphBuffer {
   getChannelData(channel: number): Float32Array
 }
@@ -115,6 +157,7 @@ export interface GraphContext {
   readonly currentTime: number
   readonly destination: GraphNode
   createGain(): GraphGain
+  createDynamicsCompressor(): GraphCompressor
   createBufferSource(): GraphBufferSource
   createBuffer(channels: number, length: number, sampleRate: number): GraphBuffer
 }
@@ -147,6 +190,11 @@ export interface AudioGraph {
   pump(): void
   /** Nodes scheduled and not yet ended, and chunks waiting. For tests and diagnostics. */
   pending(): { readonly scheduled: number; readonly queued: number }
+  /**
+   * The limiter's measured delay in seconds: chunks scheduled from now on start that much earlier
+   * (ADR 0022). Nodes already started are not moved.
+   */
+  setOutputDelay(seconds: number): void
   /** Stops and disconnects everything. */
   dispose(): void
 }
@@ -154,6 +202,14 @@ export interface AudioGraph {
 export interface AudioGraphOptions {
   readonly context: GraphContext
   readonly lookaheadSeconds?: number
+  /** The limiter's delay in seconds, if already known. Default 0. */
+  readonly outputDelaySeconds?: number
+  /**
+   * The audio-clock instant after which nothing is worth playing: no node runs past it and a node
+   * that would start at or after it is not made. For a context that renders only up to there (an
+   * export segment); a live context has none.
+   */
+  readonly endSeconds?: number
 }
 
 /** A half-open run of Timeline samples, `[from, until)`. */
@@ -195,7 +251,15 @@ function cover(covered: readonly Span[], span: Span): Span[] {
 export function createAudioGraph({
   context,
   lookaheadSeconds = LOOKAHEAD_SECONDS,
+  outputDelaySeconds = 0,
+  endSeconds = Number.POSITIVE_INFINITY,
 }: AudioGraphOptions): AudioGraph {
+  // The master bus: every Clip's gain feeds this limiter, which feeds the destination.
+  const limiter = context.createDynamicsCompressor()
+  configureLimiter(limiter)
+  limiter.connect(context.destination)
+  let delay = outputDelaySeconds
+
   let timebase: Timebase | null = null
   const clips = new Map<string, SceneClip>()
   const gains = new Map<string, GraphGain>()
@@ -230,7 +294,7 @@ export function createAudioGraph({
       gain = context.createGain()
       // Unity until the model has a Clip volume; this node is what a volume or a fade will drive.
       gain.gain.value = 1
-      gain.connect(context.destination)
+      gain.connect(limiter)
       gains.set(clipId, gain)
     }
     return gain
@@ -264,13 +328,20 @@ export function createAudioGraph({
     if (gaps.length === 0) return
 
     const now = context.currentTime
-    const at0 = timelineSampleToContextTime(base, at, chunk.sampleRate, chunk.startSample)
+    const at0 = timelineSampleToContextTime(base, at, chunk.sampleRate, chunk.startSample) - delay
 
     for (const gap of gaps) {
-      const begins = timelineSampleToContextTime(base, at, chunk.sampleRate, gap.from)
-      const ends = timelineSampleToContextTime(base, at, chunk.sampleRate, gap.until)
+      const begins = timelineSampleToContextTime(base, at, chunk.sampleRate, gap.from) - delay
+      const ends = Math.min(
+        timelineSampleToContextTime(base, at, chunk.sampleRate, gap.until) - delay,
+        endSeconds
+      )
       const from = Math.max(begins, now)
-      if (ends <= from) continue
+      // Entirely past on the clock is dropped. A piece that ends within the delay of now is still
+      // started — for no time at all — so the placement of the pieces after it does not depend on
+      // whether the delay swallowed one (a piece's node is never skipped for the delay alone).
+      // A piece whose sound would emerge from the limiter after the end is not worth a node.
+      if (begins + delay >= endSeconds || ends + delay <= from) continue
 
       const node = context.createBufferSource()
       node.buffer = bufferFor(chunk)
@@ -280,7 +351,7 @@ export function createAudioGraph({
         node.disconnect()
       }
       scheduled.set(node, { chunk, cutAt: null })
-      node.start(from, from - at0, ends - from)
+      node.start(from, from - at0, Math.max(0, ends - from))
     }
   }
 
@@ -323,7 +394,7 @@ export function createAudioGraph({
       for (const [node, entry] of scheduled) {
         // Cut where the new position begins. A node a previous seek already cut keeps the earlier
         // cut: a second seek must not let the first one's old sound back in.
-        const cutAt = Math.min(entry.cutAt ?? Number.POSITIVE_INFINITY, at.contextSeconds)
+        const cutAt = Math.min(entry.cutAt ?? Number.POSITIVE_INFINITY, at.contextSeconds - delay)
         entry.cutAt = cutAt
         node.stop(cutAt)
         kept.add(entry.chunk)
@@ -361,7 +432,8 @@ export function createAudioGraph({
       for (const chunk of queue) {
         const clip = clips.get(chunk.clipId)
         if (clip === undefined) continue
-        const begins = timelineSampleToContextTime(base, at, chunk.sampleRate, chunk.startSample)
+        const begins =
+          timelineSampleToContextTime(base, at, chunk.sampleRate, chunk.startSample) - delay
         if (begins < horizon) schedule(chunk, clip, at, base)
         else waiting.push(chunk)
       }
@@ -372,8 +444,13 @@ export function createAudioGraph({
       return { scheduled: scheduled.size, queued: queue.length }
     },
 
+    setOutputDelay(seconds) {
+      delay = seconds
+    },
+
     dispose() {
       graph.stop()
+      limiter.disconnect()
       for (const gain of gains.values()) gain.disconnect()
       gains.clear()
     },

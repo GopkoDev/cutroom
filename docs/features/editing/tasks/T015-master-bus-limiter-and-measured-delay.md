@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/audio/graph.ts", "apps/editor/src/audio/limiter-de
 owner: "Dmytro Hopko"
 estimate: "L"
 context_budget: "S"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T015 — Mix every Clip through one limiter with its measured delay, in Playback and Export
 

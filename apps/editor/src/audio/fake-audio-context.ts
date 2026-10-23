@@ -28,6 +28,14 @@ export class FakeGain extends FakeNode implements GraphGain {
   readonly gain = { value: 0 }
 }
 
+export class FakeCompressor extends FakeNode {
+  readonly threshold = { value: 0 }
+  readonly knee = { value: 0 }
+  readonly ratio = { value: 0 }
+  readonly attack = { value: 0 }
+  readonly release = { value: 0 }
+}
+
 export class FakeBuffer implements GraphBuffer {
   readonly data: Float32Array[]
   readonly length: number
@@ -75,6 +83,8 @@ export class FakeAudioContext implements TransportAudioContext {
   readonly destination = new FakeNode()
   readonly gains: FakeGain[] = []
   readonly sources: FakeBufferSource[] = []
+  readonly compressors: FakeCompressor[] = []
+  sampleRate = 48_000
   resumed = 0
   closed = false
 
@@ -82,6 +92,12 @@ export class FakeAudioContext implements TransportAudioContext {
     const gain = new FakeGain()
     this.gains.push(gain)
     return gain
+  }
+
+  createDynamicsCompressor() {
+    const compressor = new FakeCompressor()
+    this.compressors.push(compressor)
+    return compressor
   }
 
   createBufferSource() {

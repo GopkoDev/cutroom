@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { frameToSampleIndex, type Scene, type SceneClip, type Timebase } from "@cutroom/model"
 
 import { FakeAudioContext, type FakeBufferSource } from "./fake-audio-context"
-import { createAudioGraph, LOOKAHEAD_SECONDS, type PcmChunk } from "./graph"
+import { createAudioGraph, LIMITER, LOOKAHEAD_SECONDS, type PcmChunk } from "./graph"
 
 // What the graph promises is *when* each piece of sound starts on the audio clock, and that no
 // sample of a Clip is heard twice or outside its Clip. The context is a fake whose clock moves only
@@ -59,7 +59,7 @@ describe("the graph's nodes", () => {
     expect(context.gains).toHaveLength(2)
     for (const gain of context.gains) {
       expect(gain.gain.value).toBe(1)
-      expect(gain.connections).toEqual([context.destination])
+      expect(gain.connections).toEqual([context.compressors[0]])
     }
 
     graph.setScene(sceneOf([other]))
@@ -337,5 +337,92 @@ describe("ten minutes at 30000/1001 (FR-013)", () => {
     const last = starts.at(-1)
     const lastSample = (starts.length - 1) * length
     expect(last?.when).toBeCloseTo(0.1 + lastSample / RATE, 9)
+  })
+})
+
+describe("the master bus (AC-23, ADR 0022)", () => {
+  it("states the limiter's settings", () => {
+    expect(LIMITER).toEqual({ threshold: 0, knee: 0, ratio: 20, attack: 0.001, release: 0.1 })
+  })
+
+  it("mixes two Clips' gains into one limiter that feeds the destination", () => {
+    const context = new FakeAudioContext()
+    const graph = createAudioGraph({ context })
+    const other = { ...CLIP, clipId: "clip-2", startFrame: 330 }
+    graph.setScene(sceneOf([CLIP, other]))
+
+    expect(context.gains).toHaveLength(2)
+    expect(context.compressors).toHaveLength(1)
+    const [limiter] = context.compressors
+    expect(limiter?.threshold.value).toBe(LIMITER.threshold)
+    expect(limiter?.knee.value).toBe(LIMITER.knee)
+    expect(limiter?.ratio.value).toBe(LIMITER.ratio)
+    expect(limiter?.attack.value).toBe(LIMITER.attack)
+    expect(limiter?.release.value).toBe(LIMITER.release)
+    expect(limiter?.connections).toEqual([context.destination])
+    for (const gain of context.gains) expect(gain.connections).toEqual([limiter])
+    expect(context.destination.connections).toEqual([])
+  })
+
+  it("makes the limiter even before any Clip is in the Scene, and only one", () => {
+    const context = new FakeAudioContext()
+    createAudioGraph({ context })
+    expect(context.compressors).toHaveLength(1)
+  })
+
+  it("disconnects the limiter on dispose", () => {
+    const context = new FakeAudioContext()
+    const graph = createAudioGraph({ context })
+    graph.setScene(sceneOf([CLIP]))
+    graph.dispose()
+    expect(context.compressors[0]?.disconnected).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("the output delay (ADR 0022)", () => {
+  const DELAY = 288 / RATE
+
+  function playingWith(delay: number | undefined) {
+    const context = new FakeAudioContext()
+    context.currentTime = 0.9
+    const graph = createAudioGraph({ context, outputDelaySeconds: delay })
+    graph.setScene(sceneOf([CLIP]))
+    graph.start({ frame: 30, contextSeconds: 1 })
+    return { context, graph }
+  }
+
+  it("schedules a future chunk that many seconds earlier, at the same offset", () => {
+    const { context, graph } = playingWith(DELAY)
+    graph.receive(chunk(CLIP_START_SAMPLE, 4800))
+
+    const start = context.sources[0]?.started
+    expect(start?.when).toBeCloseTo(1 - DELAY, 9)
+    expect(start?.offset).toBe(0)
+  })
+
+  it("changes nothing with no delay, or a delay of 0", () => {
+    for (const delay of [undefined, 0]) {
+      const { context, graph } = playingWith(delay)
+      graph.receive(chunk(CLIP_START_SAMPLE, 4800))
+      expect(context.sources[0]?.started).toMatchObject({ when: 1, offset: 0 })
+    }
+  })
+
+  it("applies a delay set later by setOutputDelay to chunks scheduled after it", () => {
+    const { context, graph } = playingWith(undefined)
+    graph.setOutputDelay(DELAY)
+    graph.receive(chunk(CLIP_START_SAMPLE, 4800))
+    expect(context.sources[0]?.started?.when).toBeCloseTo(1 - DELAY, 9)
+    expect(context.sources[0]?.started?.offset).toBe(0)
+  })
+
+  it("keeps the offset into the buffer for a chunk that began before its Clip", () => {
+    const { context, graph } = playingWith(DELAY)
+    // The chunk starts 100 samples before the Clip: those samples are trimmed, the rest is
+    // placed where it belongs, less the delay.
+    graph.receive(chunk(CLIP_START_SAMPLE - 100, 4800))
+    const start = context.sources[0]?.started
+    expect(start?.when).toBeCloseTo(1 - DELAY, 9)
+    expect(start?.offset).toBeCloseTo(100 / RATE, 9)
   })
 })

@@ -67,6 +67,7 @@ import { useEffect, useRef, useState } from "react"
 import type { PixelSize, Timebase } from "@cutroom/model"
 
 import { createTransport, type Transport } from "@/audio/transport"
+import { measureBrowserLimiterDelay } from "@/audio/limiter-delay"
 import { streamExportAudio } from "@/audio/offline-mix"
 import { startEngine, type EngineClient } from "@/engine-client"
 import { useEditorStore, type EngineFatalReport } from "@/store"
@@ -337,7 +338,12 @@ export function EditorLayout() {
     const exports = createExportController({
       engine: client,
       pickDestination: (suggestedName) => pickSaveFile(suggestedName),
-      streamAudio: streamExportAudio,
+      streamAudio: async (options) =>
+        streamExportAudio({
+          ...options,
+          // The limiter's delay at the export's rate, before the mix starts (ADR 0022); 0 on failure.
+          limiterDelaySeconds: await measureBrowserLimiterDelay(options.sampleRate),
+        }),
       sourceAt: (destination) => statusTracker.sourceAt(destination),
     })
     setExporter(exports)

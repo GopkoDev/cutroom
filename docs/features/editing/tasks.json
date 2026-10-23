@@ -332,7 +332,7 @@
         "apps/editor/src/audio/limiter-delay.test.ts"
       ],
       "file": "docs/features/editing/tasks/T015-master-bus-limiter-and-measured-delay.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T016",

@@ -530,3 +530,87 @@ describe("what else can end or move playback", () => {
     expect(store.getState().transport).toBe("stopped")
   })
 })
+
+describe("the limiter's measured delay (ADR 0022)", () => {
+  const DELAY = 288 / 48_000
+
+  function withMeasure(measureDelay: (sampleRate: number) => Promise<number>) {
+    const store = projectStore()
+    const engine = fakeEngine()
+    const context = new FakeAudioContext()
+    const frames = fakeFrames()
+    const clock = { ms: 0 }
+    const transport = createTransport({
+      store,
+      engine,
+      createContext: () => context,
+      animationFrames: frames,
+      now: () => clock.ms,
+      measureDelay,
+    })
+    return { store, engine, context, frames, clock, transport }
+  }
+
+  it("measures once, for the live context's sample rate, however many times it plays", async () => {
+    const measure = vi.fn((rate: number) => Promise.resolve(rate > 0 ? DELAY : DELAY))
+    const { store, engine, context, transport } = withMeasure(measure)
+    context.sampleRate = 44_100
+    transport.play()
+    transport.stop()
+    transport.play()
+    engine.emit(pcmAt(store, 0))
+    await Promise.resolve()
+
+    expect(measure).toHaveBeenCalledTimes(1)
+    expect(measure).toHaveBeenCalledWith(44_100)
+  })
+
+  it("holds the clock until the delay is known, then starts the sound that much earlier", async () => {
+    let resolve: (seconds: number) => void = () => {}
+    const measure = vi.fn(() => new Promise<number>((r) => (resolve = r)))
+    const { store, engine, context, frames, transport } = withMeasure(measure)
+    transport.play()
+    engine.emit(pcmAt(store, 0))
+    frames.step()
+
+    // The sound is in hand but the delay is not: nothing is anchored or started.
+    expect(context.sources).toHaveLength(0)
+    expect(clockRequests(engine)).toEqual([0])
+    context.currentTime = 0.5
+    frames.step()
+    expect(context.sources).toHaveLength(0)
+    expect(clockRequests(engine)).toEqual([0])
+
+    context.currentTime = 0
+    resolve(DELAY)
+    await new Promise((done) => setTimeout(done, 0))
+    frames.step()
+
+    const [source] = context.sources
+    expect(source?.started?.when).toBeCloseTo(START_MARGIN_SECONDS - DELAY, 9)
+    expect(source?.started?.offset).toBe(0)
+  })
+
+  it("goes ahead without the delay once the start wait limit passes", () => {
+    const measure = vi.fn(() => new Promise<number>(() => {}))
+    const { store, engine, context, frames, clock, transport } = withMeasure(measure)
+    transport.play()
+    engine.emit(pcmAt(store, 0))
+    clock.ms = START_WAIT_LIMIT_MS - 1
+    frames.step()
+    expect(context.sources).toHaveLength(0)
+
+    clock.ms = START_WAIT_LIMIT_MS
+    frames.step()
+    expect(context.sources[0]?.started?.when).toBeCloseTo(START_MARGIN_SECONDS, 9)
+  })
+
+  it("starts at once when the delay is measured as 0", async () => {
+    const { store, engine, context, frames, transport } = withMeasure(async () => 0)
+    transport.play()
+    await new Promise((done) => setTimeout(done, 0))
+    engine.emit(pcmAt(store, 0))
+    frames.step()
+    expect(context.sources[0]?.started?.when).toBeCloseTo(START_MARGIN_SECONDS, 9)
+  })
+})
