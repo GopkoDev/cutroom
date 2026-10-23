@@ -98,7 +98,7 @@
         "packages/model/test/"
       ],
       "file": "docs/features/editing/tasks/T005-split-targets-and-split-clips.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T006",

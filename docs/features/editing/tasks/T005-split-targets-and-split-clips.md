@@ -9,8 +9,8 @@ files_hint: ["packages/model/src/editing/split.ts", "packages/model/src/editing/
 owner: "Dmytro Hopko"
 estimate: "S"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T005 — Add the splitTargets rule and the split-clips command
 

@@ -32,6 +32,7 @@ import { enablePatches, produceWithPatches, type Draft, type Patch } from "immer
 
 import { isTimestamp } from "../document/parse"
 import { CURRENT_SCHEMA_VERSION, type Clip, type Project } from "../document/types"
+import { splitRefusal } from "../editing/split"
 import { trimRefusal } from "../editing/limits"
 import { frameToSourceTime, sourceTimeBefore, type Rational } from "../timebase"
 
@@ -42,6 +43,7 @@ import type {
   ImportSourceCommand,
   RefusalReason,
   RelinkSourceCommand,
+  SplitClipsCommand,
   TrimClipCommand,
 } from "./index"
 
@@ -409,6 +411,92 @@ function trimClip(project: Project, command: TrimClipCommand): CommandResult {
   })
 }
 
+function splitClips(project: Project, command: SplitClipsCommand): CommandResult {
+  expectStamp(command)
+  if (!Number.isSafeInteger(command.frame)) {
+    refuse(command.type, "invalid", `frame must be a whole number, got ${String(command.frame)}`)
+  }
+
+  const named = new Set<string>()
+  const located: { trackIndex: number; clip: Clip; newClipId: string }[] = []
+  for (const cut of command.cuts) {
+    expectIdentifier(command.type, cut.clipId, "cuts.clipId")
+    expectIdentifier(command.type, cut.newClipId, "cuts.newClipId")
+    if (named.has(cut.clipId)) {
+      refuse(command.type, "invalid", `${JSON.stringify(cut.clipId)} is named in more than one cut`)
+    }
+    named.add(cut.clipId)
+  }
+  for (const cut of command.cuts) {
+    let found: { trackIndex: number; clip: Clip } | undefined
+    for (const [trackIndex, track] of project.timeline.tracks.entries()) {
+      const clip = track.clips.find((existing) => existing.id === cut.clipId)
+      if (clip !== undefined) found = { trackIndex, clip }
+    }
+    if (found === undefined) {
+      refuse(
+        command.type,
+        "unknown-clip",
+        `no Clip on the Timeline carries the id ${JSON.stringify(cut.clipId)}`
+      )
+    }
+    located.push({ ...found, newClipId: cut.newClipId })
+  }
+
+  // A new id may not be on the Timeline already, nor used for two halves in the one command.
+  const taken = new Set<string>()
+  for (const track of project.timeline.tracks) for (const clip of track.clips) taken.add(clip.id)
+  for (const { newClipId } of located) {
+    if (taken.has(newClipId)) {
+      refuse(
+        command.type,
+        "duplicate-id",
+        `a Clip with the id ${JSON.stringify(newClipId)} is already on the Timeline, or is named ` +
+          "twice in this command — ids are never reused"
+      )
+    }
+    taken.add(newClipId)
+  }
+
+  for (const { clip } of located) {
+    const reason = splitRefusal(clip, command.frame)
+    if (reason !== null) {
+      refuse(
+        command.type,
+        reason,
+        `Frame ${command.frame} is not strictly inside ${JSON.stringify(clip.id)} — see splitTargets`
+      )
+    }
+  }
+
+  if (located.length === 0) return { project, patches: [], inversePatches: [] }
+
+  return write(project, (draft) => {
+    for (const { trackIndex, clip, newClipId } of located) {
+      const track = draft.timeline.tracks[trackIndex]
+      if (track === undefined) continue
+      const index = track.clips.findIndex((existing) => existing.id === clip.id)
+      const first = track.clips[index]
+      if (first === undefined) continue
+      // The second half's In-point moves only through `frameToSourceTime` (ADR 0018). The halves
+      // meet at `frame`, so together they cover exactly the Frames the Clip did.
+      const offset = command.frame - clip.startFrame
+      first.durationFrames = offset
+      // Right after the first half keeps the Track ordered by `startFrame`: the Clip after it
+      // starts at or beyond the old end, which is beyond `frame`.
+      track.clips.splice(index + 1, 0, {
+        id: newClipId,
+        sourceId: clip.sourceId,
+        startFrame: command.frame,
+        durationFrames: clip.durationFrames - offset,
+        sourceInPoint: frameToSourceTime(project.timebase, clip.sourceInPoint, offset),
+      })
+    }
+    retimeTimeline(draft)
+    draft.modifiedAt = command.at
+  })
+}
+
 // ------------------------------------------------------------------------------- the reducer
 
 /** The Project a command needs to already exist, or a refusal saying it does not. */
@@ -444,6 +532,8 @@ export function applyCommand(project: Project | null, command: Command): Command
       return relinkSource(requireProject(project, command), command)
     case "trim-clip":
       return trimClip(requireProject(project, command), command)
+    case "split-clips":
+      return splitClips(requireProject(project, command), command)
     default:
       // Unreachable for a caller TypeScript checked, reachable for one that cast its way in.
       return refuse(

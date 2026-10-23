@@ -96,6 +96,17 @@ export interface TrimClipCommand extends CommandFields {
   readonly frame: number
 }
 
+/**
+ * Cuts each named Clip into two at `frame`, the Playhead. Each cut names a Clip `frame` is strictly
+ * inside and the id of its second half. The first half ends at `frame`; the second starts there
+ * with the In-point advanced by `frame - startFrame`. Whole or refused: one bad cut applies none.
+ */
+export interface SplitClipsCommand extends CommandFields {
+  readonly type: "split-clips"
+  readonly frame: number
+  readonly cuts: readonly { readonly clipId: string; readonly newClipId: string }[]
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
   | CreateProjectCommand
@@ -103,6 +114,7 @@ export type Command =
   | AddClipCommand
   | RelinkSourceCommand
   | TrimClipCommand
+  | SplitClipsCommand
 
 /**
  * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).
