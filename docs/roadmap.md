@@ -22,7 +22,7 @@ The interface target is the Kino prototype, recorded in [`docs/reference/README.
 | # | Step | Source | Size | Status |
 |---|---|---|:---:|---|
 | 1 | Import, play, export: the user's own file becomes a Clip they can scrub, play in sync and export as an MP4 → [import-play-export](./features/import-play-export/spec.md) | `docs/features/import-play-export/spec.md` §1. Context | L | shipped |
-| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second Track and audio | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | idea |
+| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second video Track and every Clip's sound mixed → [editing](./features/editing/spec.md) | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | spec'd |
 | 3 | Images as Sources → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Images as Sources | fog | idea |
 | 4 | Transitions → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Transitions · `docs/reference/README.md` §Clip speed and other Clip commands | fog | idea |
 | 5 | Effects and colour grading → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Effects and colour grading · `docs/reference/README.md` §Inspector: effects and colour | fog | idea |
@@ -77,8 +77,8 @@ The interface target is the Kino prototype, recorded in [`docs/reference/README.
 | # | Question | Type | Owner | Blocks |
 |---|---|:---:|:---:|:---:|
 | D1 | Does an exported file of step 1 play correctly in VLC and in QuickTime Player itself (SC-006, the T096 check a script could not make)? | task | human | — |
-| D2 | Does a trim ripple — does trimming a Clip shorter leave a gap or pull everything after it back? | grilling | human | 2 |
-| D3 | What is one undo step during a drag — every intermediate position, or the whole Gesture? | grilling | human | 2 |
+| D2 | ~~Does a trim ripple — does trimming a Clip shorter leave a gap or pull everything after it back?~~ Closed: a Trim leaves a Gap ([editing spec](./features/editing/spec.md) §1) | grilling | human | — |
+| D3 | ~~What is one undo step during a drag — every intermediate position, or the whole Gesture?~~ Closed: the whole Gesture ([editing spec](./features/editing/spec.md) §1) | grilling | human | — |
 | D4 | Which time space is a Clip's In-point measured in (container presentation time, or time from the first sample)? It needs an ADR before trimming lands | grilling | human | 2 |
 | D5 | Should nested sequences / compound clips exist at all? They change what "the Timeline" means | grilling | human | — |
 | D6 | Should variable-frame-rate Sources be supported? The model assumes one Timebase per Source, and VFR breaks that assumption rather than stretching it | grilling | human | — |
