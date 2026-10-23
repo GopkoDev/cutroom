@@ -50,4 +50,5 @@ A Project is written to IndexedDB when a gesture ends, not on a timer. A standal
 - Spec: [spec.md](../features/import-play-export/spec.md)
 - SAD: [sad.md](../features/import-play-export/sad.md) §8
 - Related ADR: [0004](./0004-single-reducer-with-inverse-patches-for-undo.md), [0007](./0007-project-document-is-portable-versioned-json.md)
+- Amended by: [0020](./0020-a-drag-is-a-preview-and-the-project-changes-once-on-release.md) — a drag is a preview and writes nothing until release, so the debounced save of an open Gesture is retired; the finished-Gesture rule above is unchanged
 - Format: converted to SDD's MADR shape during the SDD migration; the original prose is kept in Decision outcome and Consequences. Original text: `git show 7f5efea:docs/adr/0011-saves-follow-the-gesture-and-commit-explicitly.md`
