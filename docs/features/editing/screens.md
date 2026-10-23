@@ -31,8 +31,8 @@ updated_at: "2026-10-23"
   - `EditorLayout`: `src/ui/EditorLayout.tsx`, with the Preview panel and the `engine-fatal` and
     `save-failure` notices.
 - **Posture:** desktop-first, pointer and keyboard (ux-flows §Platform decisions).
-- **Decisions taken in this stage.** All three were decided by the agent on the owner's
-  delegation, 2026-10-23:
+- **Decisions taken in this stage.** S1–S3 were decided by the agent on the owner's
+  delegation, 2026-10-23, and S4 during `/sdd:implement`:
   - **S1.** An edit refusal is shown as one `Notice` in tone `attention` above the Tracks
     (`edit-refusal`), not in tone `failure`. A refusal is a rule the User can act on at once.
     Nothing broke and nothing was lost, so the red tone, which `Notice` keeps for something that
@@ -44,6 +44,12 @@ updated_at: "2026-10-23"
   - **S3.** The edit buttons sit in the Timeline panel's header row (`EditToolbar`), beside the
     duration line. That row is the one place every Timeline edit is reachable without leaving the
     Timeline. The Track buttons sit in the Track headers.
+  - **S4.** A press on a Clip's body still puts the Playhead on the pressed Frame, as a press
+    anywhere on the Timeline did in step 1 (FR-007, which `scrub-latency.spec.ts` measures by
+    clicking the middle of the Timeline, where Clips sit). The press also selects the Clip. Once
+    the press moves past 3 px it becomes a move drag, and the drag never scrubs the Playhead. A
+    press on a head or tail handle does not move the Playhead. Decided by the agent on the
+    owner's delegation, 2026-10-24, during `/sdd:implement`.
 
 ## Screens
 
