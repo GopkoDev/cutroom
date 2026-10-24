@@ -9,13 +9,15 @@
     "./protocol": "./src/protocol.ts"
   },
   "scripts": {
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "test": "vitest run"
   },
   "dependencies": {
     "mediabunny": "^1.25.3",
     "pixi.js": "^8"
   },
   "devDependencies": {
-    "@cutroom/model": "workspace:*"
+    "@cutroom/model": "workspace:*",
+    "vitest": "^3"
   }
 }

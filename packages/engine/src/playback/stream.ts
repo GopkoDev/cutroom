@@ -86,6 +86,22 @@ function preparationsOf(sinks: SinkSet): Map<string, Promise<void>> {
   return map
 }
 
+/**
+ * Settles once every preparation in flight on `sinks` has. A preparation runs after the Render that
+ * started it has returned, so the scheduler's one-job-at-a-time rule does not cover it: a seek or a
+ * stop that arrives meanwhile waits here first, or it would build a second sink beside the one the
+ * preparation is building, or close streams the preparation then opens (review R-13).
+ */
+export async function settlePreparations(sinks: SinkSet): Promise<void> {
+  await Promise.all([...preparationsOf(sinks).values()])
+}
+
+/** Stops every stream of `sinks`, once the preparations in flight have landed (playback stops). */
+export async function closeStreams(sinks: SinkSet): Promise<void> {
+  await settlePreparations(sinks)
+  sinks.abandonStreams()
+}
+
 /** The Clips that start after `frame` and no more than `ahead` Frames after it. */
 function startingSoon(scene: Scene, frame: Frame, ahead: number): SceneClip[] {
   return scene.clips.filter((clip) => clip.startFrame > frame && clip.startFrame <= frame + ahead)
@@ -155,6 +171,7 @@ async function streamTo(
  * from a seek.
  */
 export async function openStreams(sinks: SinkSet, scene: Scene, frame: Frame): Promise<void> {
+  await settlePreparations(sinks)
   const visible = scene.clips.filter((clip) => covers(clip, frame))
   sinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
   await Promise.all(

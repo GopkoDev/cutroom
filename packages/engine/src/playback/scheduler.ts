@@ -52,7 +52,13 @@ import type { Frame, Scene } from "@cutroom/model"
 
 import type { SceneRenderer } from "../compose/renderer"
 import { previewSinks } from "../sources/canvas-sink"
-import { openStreams, PREPARE_AHEAD_FRAMES, renderByStreaming } from "./stream"
+import {
+  closeStreams,
+  openStreams,
+  PREPARE_AHEAD_FRAMES,
+  renderByStreaming,
+  settlePreparations,
+} from "./stream"
 
 /**
  * How long a stopped Preview keeps its decoders parked after its last job (header). Long enough to
@@ -124,7 +130,7 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
       // Starting or seeking: a stream that can walk to `fromFrame` is kept (the walk rule), every
       // other one reopened there. Stopping, or nothing to play yet: none is worth continuing.
       if (playing && scene !== null) await openStreams(previewSinks, scene, fromFrame)
-      else previewSinks.abandonStreams()
+      else await closeStreams(previewSinks)
       return
     }
 
@@ -179,7 +185,11 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
     if (parkTimer !== null) clearTimeout(parkTimer)
     parkTimer = setTimeout(() => {
       parkTimer = null
-      if (!running && pending.length === 0 && !playing) previewSinks.abandonStreams()
+      // A preparation started by the last clock Frame may still be landing; it is waited for, and
+      // the Preview is checked for idleness again after it, so no job's stream is pulled away.
+      void settlePreparations(previewSinks).then(() => {
+        if (!running && pending.length === 0 && !playing) previewSinks.abandonStreams()
+      })
     }, PARK_MS)
   }
 
