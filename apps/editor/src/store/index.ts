@@ -297,7 +297,6 @@ export interface EditorState {
   closeProject(): Promise<void>
 }
 
-/** Undo is available when there is something to undo and no gesture is still being made. */
 /**
  * How many undo steps a session keeps (spec §6 Undo depth). Beyond it the oldest is dropped: each
  * entry holds only patches, but a session of thousands of drags should not grow without bound.
@@ -314,6 +313,7 @@ export function nextRedoLabel(state: EditorState): string | null {
   return canRedo(state) ? (state.future[0]?.label ?? null) : null
 }
 
+/** Undo is available when there is something to undo and no gesture is still being made. */
 export function canUndo(state: EditorState): boolean {
   return state.past.length > 0 && state.openTransaction === null && state.drag === null
 }

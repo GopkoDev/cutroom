@@ -295,7 +295,6 @@ export async function installPlaybackProbe(page: Page, options: ProbeOptions = {
   await page.addInitScript(installProbe, { key: PROBE_KEY, workerLoad: options.workerLoad ?? null })
 }
 
-/** Everything recorded so far. */
 /**
  * The limiter's delay at `sampleRate`, as the app measures it (ADR 0022). The graph schedules every
  * node this much before its sound is to be heard, so a node's origin is the instant it is *put*,
@@ -314,6 +313,7 @@ export async function limiterDelay(page: Page, sampleRate: number): Promise<numb
   )
 }
 
+/** Everything recorded so far. */
 export async function probeLog(page: Page): Promise<ProbeLog> {
   return page.evaluate((key) => {
     const scope = window as unknown as Record<string, unknown>
