@@ -73,6 +73,8 @@ describe("frameAtContextTime", () => {
     }
   })
 
+  // 60 000 instants: ~0.85 s on a quiet machine, but past Vitest's 5 s default when the machine
+  // is busy with other work. The limit is the harness's, not part of what SC-002 asserts.
   it("stays within one Frame of the audio clock for ten minutes at 30000/1001 (SC-002)", () => {
     const anchor = { frame: 0, contextSeconds: 0.1 }
     for (let seconds = 0; seconds <= 600; seconds += 0.01) {
@@ -81,7 +83,7 @@ describe("frameAtContextTime", () => {
       expect(exact - frame).toBeGreaterThanOrEqual(-1e-6)
       expect(exact - frame).toBeLessThan(1)
     }
-  })
+  }, 30_000)
 
   it("rejects a non-finite clock reading", () => {
     expect(() => frameAtContextTime(VIDEO, AT_ZERO, Number.POSITIVE_INFINITY)).toThrow(RangeError)
