@@ -157,10 +157,18 @@ describe("duplicateDelta", () => {
     // delta 10 puts a' on [10,20) of Track 1 (empty there) and b' on [10,15) of Track 2 (before
     // z). Neither copy touches a Clip on its own Track, so the block goes directly after the
     // Selection - a Clip on Track 2 at [16,20) says nothing about room on Track 1 (review R-01).
-    const p = base()
-    p.timeline.tracks[0]!.clips = [clip("a", 0, 10)]
-    p.timeline.tracks[1]!.clips = [clip("b", 0, 5), clip("z", 16, 4)]
-    p.timeline.durationFrames = 20
+    const fixture = base()
+    const [first, second] = fixture.timeline.tracks
+    const p: Project = {
+      ...fixture,
+      timeline: {
+        tracks: [
+          { ...first!, clips: [clip("a", 0, 10)] },
+          { ...second!, clips: [clip("b", 0, 5), clip("z", 16, 4)] },
+        ],
+        durationFrames: 20,
+      },
+    }
     expect(duplicateDelta(p, ["a", "b"])).toBe(10)
     const { project } = applyCommand(
       p,

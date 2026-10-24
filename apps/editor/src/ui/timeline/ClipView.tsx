@@ -153,9 +153,7 @@ export const ClipView = memo(function ClipView({
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-y-1 rounded-sm border-2 border-dashed",
-            ghost.ok
-              ? "border-primary bg-primary/10"
-              : "border-destructive bg-destructive/10"
+            ghost.ok ? "border-primary bg-primary/10" : "border-destructive bg-destructive/10"
           )}
           style={{
             left: offsetOfFrame(ghost.start, pxPerFrame),
