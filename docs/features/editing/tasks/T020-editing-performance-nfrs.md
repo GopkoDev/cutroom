@@ -9,8 +9,8 @@ files_hint: ["apps/editor/e2e/editing-performance.spec.ts", "apps/editor/e2e/pla
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T020 — Measure the drag, Preview, undo and two-Track playback budgets on a heavy Project
 
@@ -106,12 +106,12 @@ Internal — no API surface.
 
 ## Checklist
 
-- [ ] Build the heavy Project (two Tracks, 100 Clips over the 1080p 30 fps fixtures) in the test through editing commands
-- [ ] Drag trace: time per pointer move, p95 ≤ 16.7 ms — `apps/editor/e2e/editing-performance.spec.ts`
-- [ ] Release → Preview's new Frame p95 ≤ 300 ms (keyframe-every-2 s fixtures gate; long-GOP recorded only, SC-003)
-- [ ] ⌘Z → settled Timeline p95 ≤ 100 ms
-- [ ] Edit point every 2 s for 2 min: skipped ≤ 1%, A/V within one Frame (SC-002); two Tracks 60 s: skipped ≤ 1%, zero underruns
-- [ ] Record numbers, machine and Chrome version in `docs/features/editing/_evidence/performance.md`, with the caveat when not on the reference machine
+- [x] Build the heavy Project (two Tracks, 100 Clips over the 1080p 30 fps fixtures) in the test through editing commands
+- [x] Drag trace: time per pointer move, p95 ≤ 16.7 ms — `apps/editor/e2e/editing-performance.spec.ts`
+- [x] Release → Preview's new Frame p95 ≤ 300 ms (keyframe-every-2 s fixtures gate; long-GOP recorded only, SC-003)
+- [x] ⌘Z → settled Timeline p95 ≤ 100 ms
+- [x] Edit point every 2 s for 2 min: skipped ≤ 1%, A/V within one Frame (SC-002); two Tracks 60 s: skipped ≤ 1%, zero underruns
+- [x] Record numbers, machine and Chrome version in `docs/features/editing/_evidence/performance.md`, with the caveat when not on the reference machine
 
 ## Edge cases
 
@@ -120,10 +120,24 @@ Internal — no API surface.
 | Skipped Frames > 1% at Edit points | Stop: apply the §11 mitigation in `packages/engine/src/playback/stream.ts` as its own change, do not loosen the bar |
 | Measured off the reference machine | Record the machine; the owner re-runs on the MacBook Air M4 |
 
+## Outcome
+
+Decided by the agent on the owner's delegation, 2026-10-24: misses measured while the machine's
+1-minute load was far above its 10 cores (22–33) are recorded as provisional and re-run at a load
+near 6; the re-runs are the numbers of record. All six budgets pass on this machine (Apple M4,
+16 GB, Chrome 156), which is not the reference MacBook Air M4; the owner re-runs them there.
+The sad §11 mitigation (Clips starting within 15 Frames prepared ahead while playing,
+`packages/engine/src/playback/stream.ts`) is applied. Numbers, load per run and history:
+[`_evidence/performance.md`](../_evidence/performance.md).
+
+Open item, inherited, not this task's: `playback-rate.spec.ts` (import-play-export SC-004, at most
+one skipped Frame per minute) fails on this branch and on `main` alike, with a ~120 ms main-thread
+stall near the two-minute mark (Frames 3597–3599). See the evidence file's "Inherited" section.
+
 ## Definition of Done
 
-- [ ] Each budget has a passing e2e measurement or a recorded miss with the stop-and-decide note
-- [ ] Evidence file written
-- [ ] lint + typecheck clean
-- [ ] every Hard Rule inlined above still holds
-- [ ] `pnpm test`, `pnpm lint` (incl. `check:docs`) and `pnpm typecheck` clean
+- [x] Each budget has a passing e2e measurement or a recorded miss with the stop-and-decide note
+- [x] Evidence file written
+- [x] lint + typecheck clean
+- [x] every Hard Rule inlined above still holds
+- [x] `pnpm test`, `pnpm lint` (incl. `check:docs`) and `pnpm typecheck` clean

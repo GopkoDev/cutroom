@@ -27,6 +27,6 @@
 | T017 | Drive Trim and move drags from Clip handles and bodies through the drag slice | ui | Dmytro Hopko | M | T016 | done | COMMIT |
 | T018 | Add the edit toolbar, named Undo and Redo, keyboard shortcuts and the Place action | ui | Dmytro Hopko | M | T017 | done | COMMIT |
 | T019 | Prove the edited Export matches the Preview at every Edit point, with both sounds mixed | tests | Dmytro Hopko | M | T018, T015 | done | COMMIT |
-| T020 | Measure the drag, Preview, undo and two-Track playback budgets on a heavy Project | tests | Dmytro Hopko | M | T019 | todo | — |
+| T020 | Measure the drag, Preview, undo and two-Track playback budgets on a heavy Project | tests | Dmytro Hopko | M | T019 | done | COMMIT |
 
 **Total:** 20 tasks, ~16.5 person-days.

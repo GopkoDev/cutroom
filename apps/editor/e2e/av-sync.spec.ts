@@ -12,6 +12,7 @@ import {
   percentile,
   pictureAgainstSound,
   probeLog,
+  limiterDelay,
 } from "./playback-probe"
 
 // T069 (SC-002, FR-011, FR-013): "Picture and sound stay in sync within one Frame over 10 minutes
@@ -84,9 +85,12 @@ test(
     if (playedAt === null || stoppedAt === null) {
       throw new Error("the run's transport posts carry no audio clock reading")
     }
-    const position = (t: number) => (t - sound.anchor) * timebaseAsNumber(TIMEBASE)
+    // Nodes are put the limiter's measured delay before they are heard (ADR 0022); the picture
+    // is measured against the sound as heard.
+    const heard = sound.anchor + (await limiterDelay(page, sound.sampleRate))
+    const position = (t: number) => (t - heard) * timebaseAsNumber(TIMEBASE)
     const shown = pictureAgainstSound(run.rendered, {
-      anchor: sound.anchor,
+      anchor: heard,
       timebase: TIMEBASE,
       fromFrame: 0,
       endsAt: stoppedAt,
@@ -136,7 +140,7 @@ test(
           `; grid residual ${sound.worstGridResidual.toExponential(1)} samples` +
           `; ${sound.clicks.length} clicks, seconds 0–${SECONDS - 1} at most ${Math.max(...deviations).toFixed(3)} samples off` +
           ` (second 0 at ${sound.clicks[0]?.deviation.toFixed(3)})` +
-          `; anchor ${((sound.anchor - playedAt) * 1_000).toFixed(2)} ms after the press`,
+          `; anchor ${((heard - playedAt) * 1_000).toFixed(2)} ms after the press`,
       },
       {
         type: "not measured, constant",
@@ -157,8 +161,8 @@ test(
     expect(sound.worstGridResidual, "a node off the Timeline's sample grid").toBeLessThan(0.01)
     // The anchor is the transport's: once the start's sound was in hand, START_MARGIN_SECONDS
     // (0.05 s) ahead — never sooner than that after the press, and on an idle machine soon after.
-    expect(sound.anchor - playedAt).toBeGreaterThanOrEqual(0.05 - 0.005)
-    expect(sound.anchor - playedAt).toBeLessThan(0.05 + 0.1)
+    expect(heard - playedAt).toBeGreaterThanOrEqual(0.05 - 0.005)
+    expect(heard - playedAt).toBeLessThan(0.05 + 0.1)
     // Every whole-second click, once, each within 1 ms of its second and all at the same sample
     // of it — second 0 included, which before T070's fix lost its first ~600 samples to the AAC
     // decoder's cold start (the priming packet skipped).
