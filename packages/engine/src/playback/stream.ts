@@ -38,6 +38,15 @@
 // Walking can never show the wrong Frame: the stream is fed every Frame's Source time, and the
 // picture drawn for `n` is the one it yields for `n`'s time — the one a seek to `n` returns.
 //
+// **Clips about to start are prepared ahead of their Edit point (sad.md §11).** Without it, the
+// first Frame of the next Clip waits for a sink to be built and a decoder to be opened at the very
+// moment the clock asks for it: measured on a Timeline with an Edit point every two seconds, that
+// Frame arrived 1.1–1.6 Frames late at most cuts, past SC-002's one-Frame bar (T020). So while
+// playing, every Clip that starts within `PREPARE_AHEAD_FRAMES` of the Frame being drawn has its
+// sink built and its stream opened at its first Frame, in the background, and is retained like a
+// visible Clip. When the clock reaches it, the walk rule finds that stream at exactly the Frame it
+// wants and its first pictures already decoding — the walk ADR 0017 set up for scrubs, reused.
+//
 // Opening and closing on the transport (`transport: playing` / `stopped`) is the scheduler's
 // (playback/scheduler.ts), which owns the order those happen in relative to Renders.
 
@@ -57,6 +66,46 @@ import { covers, sourceSecondsAt } from "./mapping"
  * keyframe. Beyond it a Frame is walked to only within the stream's GOP (`canWalk`).
  */
 export const STEP_LIMIT = 30
+
+/**
+ * How far ahead of the Frame being played a Clip's start is prepared (header). Half a second at
+ * 30 fps: comfortably longer than building a sink and opening a 1080p decoder takes, and short
+ * enough that only the next Clip or two on each Track holds a decoder early.
+ */
+export const PREPARE_AHEAD_FRAMES = 15
+
+/** The preparations in flight, per sink set and Clip, so a Render can wait for its Clip's. */
+const preparing = new WeakMap<SinkSet, Map<string, Promise<void>>>()
+
+function preparationsOf(sinks: SinkSet): Map<string, Promise<void>> {
+  let map = preparing.get(sinks)
+  if (map === undefined) {
+    map = new Map()
+    preparing.set(sinks, map)
+  }
+  return map
+}
+
+/**
+ * Settles once every preparation in flight on `sinks` has. A preparation runs after the Render that
+ * started it has returned, so the scheduler's one-job-at-a-time rule does not cover it: a seek or a
+ * stop that arrives meanwhile waits here first, or it would build a second sink beside the one the
+ * preparation is building, or close streams the preparation then opens (review R-13).
+ */
+export async function settlePreparations(sinks: SinkSet): Promise<void> {
+  await Promise.all([...preparationsOf(sinks).values()])
+}
+
+/** Stops every stream of `sinks`, once the preparations in flight have landed (playback stops). */
+export async function closeStreams(sinks: SinkSet): Promise<void> {
+  await settlePreparations(sinks)
+  sinks.abandonStreams()
+}
+
+/** The Clips that start after `frame` and no more than `ahead` Frames after it. */
+function startingSoon(scene: Scene, frame: Frame, ahead: number): SceneClip[] {
+  return scene.clips.filter((clip) => clip.startFrame > frame && clip.startFrame <= frame + ahead)
+}
 
 /**
  * What a stream was mapped from: the Clip's placement and the Timebase that turned its Frames
@@ -122,6 +171,7 @@ async function streamTo(
  * from a seek.
  */
 export async function openStreams(sinks: SinkSet, scene: Scene, frame: Frame): Promise<void> {
+  await settlePreparations(sinks)
   const visible = scene.clips.filter((clip) => covers(clip, frame))
   sinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
   await Promise.all(
@@ -145,15 +195,22 @@ export async function renderByStreaming(
   sinks: SinkSet,
   renderer: SceneRenderer,
   scene: Scene,
-  frame: Frame
+  frame: Frame,
+  /** While playing, prepare the Clips starting this many Frames ahead (header); 0 otherwise. */
+  aheadFrames = 0
 ): Promise<void> {
   const visible = scene.clips.filter((clip) => covers(clip, frame))
-  sinks.retainSinks(new Set(visible.map((clip) => clip.clipId)))
+  const soon = aheadFrames > 0 ? startingSoon(scene, frame, aheadFrames) : []
+  sinks.retainSinks(new Set([...visible, ...soon].map((clip) => clip.clipId)))
+  const inFlight = preparationsOf(sinks)
 
   const loans: ClipSink[] = []
   try {
     const fetched = await settleAll(
       visible.map(async (clip): Promise<ClipPicture | null> => {
+        // A Clip prepared ahead of its start finishes being prepared before it is drawn, so its
+        // stream is opened once, not raced.
+        await inFlight.get(clip.clipId)
         const sink = await sinks.sinkForClip(clip, scene.frameSize)
         if (sink === null) return null
         await streamTo(sink, scene.timebase, clip, frame)
@@ -169,5 +226,19 @@ export async function renderByStreaming(
     )
   } finally {
     for (const sink of loans) sink.release()
+  }
+
+  // In the background: this Frame is not kept waiting for the next Clip's decoder.
+  for (const clip of soon) {
+    if (inFlight.has(clip.clipId)) continue
+    const prepared = (async () => {
+      const sink = await sinks.sinkForClip(clip, scene.frameSize)
+      if (sink !== null) await streamTo(sink, scene.timebase, clip, clip.startFrame)
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        inFlight.delete(clip.clipId)
+      })
+    inFlight.set(clip.clipId, prepared)
   }
 }

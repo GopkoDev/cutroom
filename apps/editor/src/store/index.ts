@@ -63,8 +63,10 @@
 //     transaction, an undo, a redo. The store is idle afterwards, and an edit the user has watched
 //     land is the edit a reload straight after it must keep. These are one write per thing the user
 //     did, so there is nothing for a debounce to save.
-//   * **Edits inside an open gesture are debounced** (500 ms quiet, 2 s at most), because a drag
-//     emits a command per pointer move and rebuilding the document for each would be the cost.
+//   * **A drag writes nothing until it is released.** It is a preview beside the Project
+//     (`drag.ts`, ADR 0020), so no editing Gesture issues commands while it is open, and the
+//     old 2-second upper bound for edits inside an open gesture is gone. What `beginTransaction`
+//     collects is still written at its close, like any finished gesture.
 //   * **Whatever is outstanding is written as the page is hidden or unloaded** — `visibilitychange`
 //     to `hidden` and `pagehide`; see `flushWhenLeaving`.
 //
@@ -83,6 +85,9 @@ import {
   type ProjectSaver,
 } from "@/storage/projects"
 import { storageProblem, technicalDetail } from "@/ui/failure-wording"
+
+import type { DragPreview } from "./drag"
+import { allClipIds, prune, toggle } from "./selection"
 
 // `applyCommand` already enables patches in the model's copy of Immer. Repeated here because
 // `applyPatches` is called from *this* module, and the call is documented as idempotent — the cost
@@ -120,6 +125,15 @@ export interface SourceOfflineReason {
 export interface FailureReport {
   readonly title: string
   readonly explanation: string
+  readonly detail?: string
+}
+
+/** An edit that was refused: the reason, in the model's or `splitTargets`' code, and its words. */
+export interface EditRefusal {
+  readonly reason: string
+  readonly title: string
+  readonly explanation: string
+  /** The reducer's own message, for "Details", when the refusal was not one the User can act on. */
   readonly detail?: string
 }
 
@@ -186,6 +200,21 @@ export interface EditorState {
   readonly future: readonly HistoryEntry[]
   /** The label of the gesture currently open, or `null`. Undo is unavailable while it is set. */
   readonly openTransaction: string | null
+  /**
+   * The Clips the next edit acts on, as ids (AC-14). Session state: never in the Project, never
+   * in history, never saved; pruned after every undo and redo to Clips that exist (AC-15).
+   */
+  readonly selection: readonly string[]
+  /**
+   * The drag being made, or `null` (ADR 0020). A preview beside the Project: never saved, never
+   * in history, never posted to the engine. Undo and redo are unavailable while it is open.
+   */
+  readonly drag: DragPreview | null
+  /**
+   * Why the last edit did not happen, for the refusal notice above the Tracks (screens.md S1), or
+   * `null`. Cleared by the next Gesture, by Escape and by its Dismiss action. Runtime state.
+   */
+  readonly editRefusal: EditRefusal | null
 
   // ------------------------------------------------------------------------ what the engine sees
   /**
@@ -224,6 +253,20 @@ export interface EditorState {
   undo(): void
   redo(): void
 
+  reportEditRefusal(refusal: EditRefusal | null): void
+  /** Opens, updates or closes the drag preview; `store/drag.ts` is the only caller. */
+  setDrag(drag: DragPreview | null): void
+
+  /** Makes `clipId` the only selected Clip. */
+  select(clipId: string): void
+  /** Adds `clipId` to the Selection, or takes it out (the modifier click). */
+  toggleSelected(clipId: string): void
+  /** Selects every Clip on every Track. */
+  selectAll(): void
+  clearSelection(): void
+  /** Replaces the Selection, e.g. with the Clips an edit just made. Unknown ids are dropped. */
+  setSelection(clipIds: readonly string[]): void
+
   setPlayhead(frame: number): void
   setTransport(transport: "stopped" | "playing"): void
   /**
@@ -254,14 +297,30 @@ export interface EditorState {
   closeProject(): Promise<void>
 }
 
+/**
+ * How many undo steps a session keeps (spec §6 Undo depth). Beyond it the oldest is dropped: each
+ * entry holds only patches, but a session of thousands of drags should not grow without bound.
+ */
+export const HISTORY_LIMIT = 200
+
+/** What the next undo would take back, for the Undo button to name (AC-16); null when it can't. */
+export function nextUndoLabel(state: EditorState): string | null {
+  return canUndo(state) ? (state.past.at(-1)?.label ?? null) : null
+}
+
+/** What the next redo would put back, for the Redo button to name (AC-16); null when it can't. */
+export function nextRedoLabel(state: EditorState): string | null {
+  return canRedo(state) ? (state.future[0]?.label ?? null) : null
+}
+
 /** Undo is available when there is something to undo and no gesture is still being made. */
 export function canUndo(state: EditorState): boolean {
-  return state.past.length > 0 && state.openTransaction === null
+  return state.past.length > 0 && state.openTransaction === null && state.drag === null
 }
 
 /** Redo is available when there is something to redo and no gesture is still being made. */
 export function canRedo(state: EditorState): boolean {
-  return state.future.length > 0 && state.openTransaction === null
+  return state.future.length > 0 && state.openTransaction === null && state.drag === null
 }
 
 /** What the store reaches outside itself for. Replaced only in unit tests, which have no IndexedDB. */
@@ -309,6 +368,9 @@ const NO_PROJECT = {
   sourceStatus: {},
   sourceOffline: {},
   engineFatal: null,
+  selection: [],
+  drag: null,
+  editRefusal: null,
 } as const
 
 /**
@@ -360,7 +422,9 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       if (patches.length === 0) return
 
       set((state) => ({
-        past: [...state.past, { label: finished.label, patches, inversePatches }],
+        past: [...state.past, { label: finished.label, patches, inversePatches }].slice(
+          -HISTORY_LIMIT
+        ),
         future: [],
       }))
     }
@@ -436,13 +500,20 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
           `cannot undo while the transaction ${state.openTransaction} is open — close the gesture first`
         )
       }
+      // A drag preview open is a Gesture not yet made: there is nothing of it to take back, and
+      // the step before it must wait until it is released or cancelled (AC-18, ADR 0020).
+      if (state.drag !== null) return
       const entry = state.past.at(-1)
       if (entry === undefined) return
 
       // Only the document moves. The Playhead, the transport and every Source's Linked/Offline status
       // are untouched by construction: they are not in `project`, and nothing else is written here.
       adopt(applyProjectPatches(state.project, entry.inversePatches))
-      set({ past: state.past.slice(0, -1), future: [entry, ...state.future] })
+      set({
+        past: state.past.slice(0, -1),
+        future: [entry, ...state.future],
+        selection: prune(get().selection, get().project),
+      })
       writeNow()
     }
 
@@ -453,11 +524,18 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
           `cannot redo while the transaction ${state.openTransaction} is open — close the gesture first`
         )
       }
+      // A drag preview open is a Gesture not yet made: there is nothing of it to take back, and
+      // the step before it must wait until it is released or cancelled (AC-18, ADR 0020).
+      if (state.drag !== null) return
       const entry = state.future[0]
       if (entry === undefined) return
 
       adopt(applyProjectPatches(state.project, entry.patches))
-      set({ past: [...state.past, entry], future: state.future.slice(1) })
+      set({
+        past: [...state.past, entry],
+        future: state.future.slice(1),
+        selection: prune(get().selection, get().project),
+      })
       writeNow()
     }
 
@@ -519,6 +597,34 @@ export function createEditorStore({ saver, loadProject }: EditorStoreDependencie
       undo,
       redo,
       openProject,
+
+      reportEditRefusal(editRefusal) {
+        if (editRefusal !== null || get().editRefusal !== null) set({ editRefusal })
+      },
+
+      setDrag(drag) {
+        set({ drag })
+      },
+
+      select(clipId) {
+        set({ selection: [clipId] })
+      },
+
+      toggleSelected(clipId) {
+        set((state) => ({ selection: toggle(state.selection, clipId) }))
+      },
+
+      selectAll() {
+        set((state) => ({ selection: allClipIds(state.project) }))
+      },
+
+      clearSelection() {
+        if (get().selection.length > 0) set({ selection: [] })
+      },
+
+      setSelection(clipIds) {
+        set((state) => ({ selection: prune([...clipIds], state.project) }))
+      },
 
       setPlayhead(frame) {
         set({ playheadFrame: frame })

@@ -44,6 +44,14 @@
 // sound together. `START_WAIT_LIMIT_MS` is the safety valve for sound that never comes (a Source
 // detached mid-decode): after it, playback starts with whatever is in hand.
 //
+// The start also waits for the master limiter's delay (ADR 0022). It is measured once per live
+// context (`limiter-delay.ts`, a few milliseconds of offline render) and handed to the graph, which
+// schedules every chunk that much earlier so the limited sound lands on the clock. A start anchored
+// before it is known would be out of step by the delay, so `tryToStart` holds until it is — or
+// until the same `START_WAIT_LIMIT_MS` passes, after which playback goes ahead uncompensated rather
+// than not at all (a failed measurement counts as 0). Where there is no `OfflineAudioContext` to
+// measure with (unit tests, node), the delay is known to be 0 at once.
+//
 // ## A seek while playing (T066, US2 scenario 3)
 //
 // A Playhead moved while playing — a click or a drag on the Timeline, Home, an arrow key — is
@@ -81,6 +89,7 @@ import type { EditorStore } from "@/store"
 
 import { createAudioClock, type AudioClock, type ClockContext } from "./clock"
 import { createAudioGraph, type AudioGraph, type GraphContext, type PcmChunk } from "./graph"
+import { measureBrowserLimiterDelay } from "./limiter-delay"
 import { createStartGate, type StartGate } from "./start-gate"
 
 /**
@@ -98,6 +107,7 @@ export const START_WAIT_LIMIT_MS = 1_000
 
 /** Everything the transport needs of an audio context: the graph's slice, the clock's, and resume. */
 export interface TransportAudioContext extends GraphContext, ClockContext {
+  readonly sampleRate: number
   resume(): Promise<void>
   close(): Promise<void>
 }
@@ -128,6 +138,11 @@ export interface TransportOptions {
   readonly animationFrames?: AnimationFrames
   /** The main thread's clock in milliseconds, for the start's wait limit. `performance.now`. */
   readonly now?: () => number
+  /**
+   * The limiter's delay in seconds at a sample rate, measured once per live context. Default: the
+   * browser's measurement, or an immediate 0 where there is no `OfflineAudioContext`.
+   */
+  readonly measureDelay?: (sampleRate: number) => Promise<number>
 }
 
 export interface Transport {
@@ -190,8 +205,17 @@ export function createTransport({
   pcm = pcmFromEngine(engine),
   animationFrames = browserAnimationFrames,
   now = () => performance.now(),
+  measureDelay,
 }: TransportOptions): Transport {
-  let audio: { context: TransportAudioContext; graph: AudioGraph; clock: AudioClock } | null = null
+  let audio: {
+    context: TransportAudioContext
+    graph: AudioGraph
+    clock: AudioClock
+    /** Whether the limiter's delay has been measured (or given up on) yet. */
+    delayKnown: boolean
+    /** The limiter's delay in seconds, applied at the next anchor — never during a run. */
+    delay: number
+  } | null = null
   let playing: Playing | null = null
   // The last Playhead this module wrote, so a write it did not make can be told apart (T066).
   let written: Frame | null = null
@@ -201,7 +225,31 @@ export function createTransport({
       const context = createContext()
       const graph = createAudioGraph({ context })
       graph.setScene(store.getState().scene)
-      audio = { context, graph, clock: createAudioClock({ context }) }
+      const made = {
+        context,
+        graph,
+        clock: createAudioClock({ context }),
+        delayKnown: false,
+        delay: 0,
+      }
+      audio = made
+      const measure =
+        measureDelay ??
+        (typeof OfflineAudioContext === "undefined" ? null : measureBrowserLimiterDelay)
+      // The delay is applied when Playback is next anchored, not when the measurement lands: a
+      // run already sounding without it (the start waited as long as it may) would otherwise have
+      // its later chunks moved earlier than its earlier ones, which is sound given twice.
+      const known = (seconds: number) => {
+        if (made.delayKnown) return
+        made.delayKnown = true
+        made.delay = seconds
+        if (audio === made) tryToStart()
+      }
+      if (measure === null) {
+        made.delayKnown = true
+      } else {
+        measure(context.sampleRate).then(known, () => known(0))
+      }
     }
     return audio
   }
@@ -243,12 +291,14 @@ export function createTransport({
     const scene = store.getState().scene
     if (playing?.starting == null || audio === null || scene === null) return
     const { gate, since } = playing.starting
-    if (!gate.ready() && now() - since < START_WAIT_LIMIT_MS) return
+    const waited = now() - since >= START_WAIT_LIMIT_MS
+    if (!(gate.ready() && audio.delayKnown) && !waited) return
     playing.starting = null
     // The copying first, then the clock: between reading it and the last node started there is
     // nothing left but starting nodes, which is what the margin has to cover. With no session
     // running (a fresh start) `seek` is `start`.
     audio.graph.prepare(gate.held())
+    audio.graph.setOutputDelay(audio.delay)
     audio.graph.seek(audio.clock.start(scene.timebase, playing.fromFrame))
     for (const chunk of gate.held()) audio.graph.receive(chunk)
   }

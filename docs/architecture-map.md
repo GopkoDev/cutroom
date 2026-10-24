@@ -37,8 +37,10 @@ the code of `a49c7f8` on `main` (the SDD migration changed documents only).
 - Build / test / lint (root `package.json:11-21`):
   - `pnpm build` runs `pnpm -r build`. The editor's build is `tsc -b && vite build`
     (`apps/editor/package.json:7-13`).
-  - `pnpm test` runs Vitest `^3` in `@cutroom/model` and `@cutroom/editor`. `packages/engine` has no
-    unit-test script (`packages/engine/package.json:11-13`). It is tested through Playwright.
+  - `pnpm test` runs Vitest `^3` in `@cutroom/model`, `@cutroom/engine` and `@cutroom/editor`. The
+    engine's unit suite (`packages/engine/test/`) is small: logic Playwright cannot hit
+    deterministically, over fakes, such as the prepare-ahead races in `playback/stream.ts`. The
+    engine is otherwise tested through Playwright.
   - `pnpm test:e2e` runs Playwright `^1.62.1` in Google Chrome.
   - `pnpm test:e2e:slow` runs the `@slow` specs (`CUTROOM_E2E_SLOW=1 playwright test --grep @slow`).
   - `pnpm typecheck` runs `tsc -b && tsc -p scripts`.
@@ -219,8 +221,8 @@ Platform and debt items (each cited):
   is reference-counted and deferred by one task (`apps/editor/src/ui/EditorLayout.tsx:17,139`).
 - **The fixture generator depends on the host's ffmpeg build.** That build lacks `drawtext`, so
   the Frame counter is drawn from a sprite (`scripts/make-fixtures.ts:13-17`).
-- **No unit tests for `packages/engine`.** It is covered only by Playwright
-  (`packages/engine/package.json:11-13`).
+- **Few unit tests for `packages/engine`.** It is covered mostly by Playwright; its Vitest suite
+  (`packages/engine/test/`) holds only fake-driven race tests (editing review R-13).
 - **IndexedDB version 2 is planned as one more upgrade block** (`apps/editor/src/storage/db.ts:79`).
 - **Server sync is future work** (ADR 0007, `apps/editor/src/storage/db.ts:6`,
   `apps/editor/src/store/index.ts:9`).

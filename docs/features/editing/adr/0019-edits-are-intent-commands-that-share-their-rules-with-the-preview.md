@@ -1,0 +1,1 @@
+../../../adr/0019-edits-are-intent-commands-that-share-their-rules-with-the-preview.md

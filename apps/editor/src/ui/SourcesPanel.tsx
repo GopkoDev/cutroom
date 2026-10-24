@@ -31,6 +31,7 @@ import { importPickedFile } from "@/store/import-source"
 import type { SourceStatusTracker } from "@/store/source-status"
 
 import { reloadPage, technicalDetail } from "./failure-wording"
+import { useEditing } from "./editing-context"
 import { pickOneFile } from "./file-picker"
 import { Notice } from "./Notice"
 import { formatTimecode } from "./timecode"
@@ -68,6 +69,7 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
   const project = useEditorStore((state) => state.project)
   const sourceStatus = useEditorStore((state) => state.sourceStatus)
   const engineStopped = useEditorStore((state) => state.engineFatal !== null)
+  const editing = useEditing()
   const [importing, setImporting] = useState<ImportState>({ state: "idle" })
 
   async function onImport() {
@@ -210,6 +212,19 @@ export function SourcesPanel({ tracker }: { tracker: SourceStatusTracker | null 
                   >
                     {STATUS_LABEL[status]}
                   </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    data-testid="source-place"
+                    title={`Place all of ${source.name} after the last Clip on the bottom Track`}
+                    disabled={editing === null}
+                    className="h-5 px-1.5 text-[0.625rem]"
+                    onClick={() => {
+                      editing?.edit.placeSource(source.id)
+                    }}
+                  >
+                    Place
+                  </Button>
                 </span>
               </li>
             )

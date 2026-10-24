@@ -50,4 +50,5 @@ Every position and length on the Timeline — clip placement, trims, markers, ke
 - Spec: [spec.md](../features/import-play-export/spec.md)
 - SAD: [sad.md](../features/import-play-export/sad.md) §4
 - Related ADR: [0016](./0016-the-source-timebase-is-measured.md); [constitution](../constitution.md) Principle II
+- Narrowed by: [0018](./0018-the-in-point-stays-in-container-presentation-time.md) — head Trim and Split advance the In-point, but only through `frameToSourceTime` and by whole Project Frames; no editing operation does arithmetic on Source time outside the Timebase module
 - Format: converted to SDD's MADR shape during the SDD migration; the original prose is kept in Decision outcome and Consequences. Original text: `git show 35a3596:docs/adr/0002-timeline-time-is-integer-frames.md`

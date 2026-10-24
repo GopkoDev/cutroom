@@ -34,9 +34,8 @@ interface CommandFields {
  * Brings a Project into being. Applied to no Project at all (`null`), so its inverse is simply
  * "there is no Project again".
  *
- * It carries the first Track, because this slice has exactly one video Track (data-model.md) and
- * there is no `add-track` command to make one — so the Track is born with the Project, and its id
- * comes from the caller like every other id.
+ * It carries the first Track: that Track is born with the Project, and its id comes from the
+ * caller like every other id. `add-track` adds the second.
  */
 export interface CreateProjectCommand extends CommandFields {
   readonly type: "create-project"
@@ -82,6 +81,118 @@ export interface RelinkSourceCommand extends CommandFields {
   readonly fingerprint: SourceFingerprint
 }
 
+/**
+ * Drags one end of a Clip to a Frame, showing less of its Source or more of it. `frame` is where
+ * the edge goes: for `head` the new `startFrame`; for `tail` the new end, `startFrame +
+ * durationFrames` (exclusive). A head Trim moves the In-point by the same number of Frames, so the
+ * Clip's first Frame is still the Source Frame it was; a tail Trim changes only `durationFrames`.
+ * The target is exact: the reducer refuses a Frame `trimRange` does not allow rather than moving it.
+ */
+export interface TrimClipCommand extends CommandFields {
+  readonly type: "trim-clip"
+  readonly clipId: string
+  readonly edge: "head" | "tail"
+  readonly frame: number
+}
+
+/**
+ * Cuts each named Clip into two at `frame`, the Playhead. Each cut names a Clip `frame` is strictly
+ * inside and the id of its second half. The first half ends at `frame`; the second starts there
+ * with the In-point advanced by `frame - startFrame`. Whole or refused: one bad cut applies none.
+ */
+export interface SplitClipsCommand extends CommandFields {
+  readonly type: "split-clips"
+  readonly frame: number
+  readonly cuts: readonly { readonly clipId: string; readonly newClipId: string }[]
+}
+
+/**
+ * Moves each named Clip by `delta` Frames, which may be negative. `toTrackId` is `null` to keep each
+ * Clip on its own Track, or a Track id to put them all on that Track — which needs them all to start
+ * on one Track. Each Clip keeps its id, so the engine's per-Clip state survives. Whole or refused:
+ * one Clip that cannot land stops them all.
+ */
+export interface MoveClipsCommand extends CommandFields {
+  readonly type: "move-clips"
+  readonly clipIds: readonly string[]
+  readonly delta: number
+  readonly toTrackId: string | null
+}
+
+/**
+ * Removes each named Clip. Without `ripple` the Gaps stay; with it, every later Clip on the same
+ * Track moves back by the total length deleted before it on that Track, each Track closed on its own.
+ * Whole or refused: an unknown id stops the lot. An empty list changes nothing.
+ */
+export interface DeleteClipsCommand extends CommandFields {
+  readonly type: "delete-clips"
+  readonly clipIds: readonly string[]
+  readonly ripple: boolean
+}
+
+/**
+ * Puts a copy of each named Clip `delta` Frames from its original, on the same Track, showing the
+ * same part of the same Source. `copies` pairs each original with the id of its copy. The caller
+ * takes `delta` from `duplicateDelta`. Whole or refused: one copy that cannot land stops them all.
+ * An empty list changes nothing.
+ */
+export interface DuplicateClipsCommand extends CommandFields {
+  readonly type: "duplicate-clips"
+  readonly delta: number
+  readonly copies: readonly { readonly clipId: string; readonly newClipId: string }[]
+}
+
+/**
+ * Adds an empty video Track on top of the stack (the end of the Track list), which draws above the
+ * Tracks below it. The caller supplies its id and name. Refused once the Project already has
+ * `MAX_VIDEO_TRACKS` Tracks, or if the id is in use.
+ */
+export interface AddTrackCommand extends CommandFields {
+  readonly type: "add-track"
+  readonly track: { readonly id: string; readonly name: string }
+}
+
+/**
+ * Removes a Track together with its Clips; the Timeline shrinks to the Clips that remain. Refused
+ * for the only Track a Project has. Undo restores the Track and every Clip on it in one step.
+ */
+export interface RemoveTrackCommand extends CommandFields {
+  readonly type: "remove-track"
+  readonly trackId: string
+}
+
 /** Everything that can change a Project in this slice. */
 export type Command =
-  CreateProjectCommand | ImportSourceCommand | AddClipCommand | RelinkSourceCommand
+  | CreateProjectCommand
+  | ImportSourceCommand
+  | AddClipCommand
+  | RelinkSourceCommand
+  | TrimClipCommand
+  | SplitClipsCommand
+  | MoveClipsCommand
+  | DeleteClipsCommand
+  | DuplicateClipsCommand
+  | AddTrackCommand
+  | RemoveTrackCommand
+
+/**
+ * Why a command was refused, as data a caller can branch on (contracts/public-api.md §Refusals).
+ * The message stays for people; this is for code — the store maps it to a notice, a test asserts it.
+ */
+export type RefusalReason =
+  | "overlap"
+  | "before-timeline-start"
+  | "too-short"
+  | "source-bounds"
+  | "track-limit"
+  | "last-track"
+  | "nothing-to-split"
+  | "unknown-clip"
+  | "unknown-track"
+  | "unknown-source"
+  | "duplicate-id"
+  | "no-project"
+  | "invalid"
+
+/** The most video Tracks a Project may have. A product limit refused by add-track, not a document rule. */
+export const MAX_VIDEO_TRACKS = 2

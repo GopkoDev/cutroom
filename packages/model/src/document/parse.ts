@@ -21,7 +21,7 @@
 // corrupted document and silent data loss, so the only safe answer to "I do not understand this"
 // is to say so.
 
-import type { Rational, Timebase } from "../timebase"
+import { framesForDuration, sourceTimeBefore, type Rational, type Timebase } from "../timebase"
 import {
   CURRENT_SCHEMA_VERSION,
   type Clip,
@@ -380,6 +380,14 @@ function parseTimeline(value: unknown, path: string): Timeline {
   const tracks = expectArray(raw.tracks, `${path}.tracks`).map((track, index) =>
     parseTrack(track, `${path}.tracks[${index}]`)
   )
+  // A Project always has at least one Track; the editor never offers to delete the last one, so a
+  // document without any was not written by it (data-model.md).
+  if (tracks.length === 0) {
+    fail(
+      `${path}.tracks`,
+      "must hold at least one Track — a Project always has one, even with no Clips on it"
+    )
+  }
   const durationFrames = expectFrame(raw.durationFrames, `${path}.durationFrames`)
 
   // Derived and stored, so it can disagree with what it was derived from. It is checked rather
@@ -399,6 +407,39 @@ function parseTimeline(value: unknown, path: string): Timeline {
   }
 
   return { tracks, durationFrames }
+}
+
+/**
+ * A Clip stays within its Source: the In-point lies inside it and the Clip asks for no more Frames
+ * than the Source has left after the In-point. All time arithmetic is `timebase.ts`'s (ADR 0002,
+ * ADR 0018): `sourceTimeBefore` is an exact subtraction clamped at zero, so a remainder of zero is
+ * precisely "In-point at or past the end", with no float and no cross-multiplication here. The
+ * ceiling is `framesForDuration`, the same rounding the import used, so a Clip the import produced
+ * is never stricter-checked than it was made.
+ */
+function checkWithinSource(clip: Clip, source: Source, timebase: Timebase, where: string): void {
+  let remaining: Rational
+  let allowed: number
+  try {
+    remaining = sourceTimeBefore(source.duration, clip.sourceInPoint)
+    allowed = framesForDuration(timebase, remaining)
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error
+    fail(where, `cannot be measured against its Source: ${error.message}`)
+  }
+  if (remaining.numerator === 0) {
+    fail(
+      `${where}.sourceInPoint`,
+      `is ${clip.sourceInPoint.numerator}/${clip.sourceInPoint.denominator} s, at or past the end of ` +
+        `its Source (${source.duration.numerator}/${source.duration.denominator} s) — no Frame fits`
+    )
+  }
+  if (clip.durationFrames > allowed) {
+    fail(
+      `${where}.durationFrames`,
+      `is ${clip.durationFrames}, but its Source holds only ${allowed} Frames after the In-point`
+    )
+  }
 }
 
 /**
@@ -470,6 +511,7 @@ export function parseProject(value: unknown): Project {
   // duplicate makes "the Source with this id" ambiguous and a dangling one makes it nothing at all
   // — neither is a Source going Offline, which leaves the Source in the document (FR-022).
   const sourceIds = new Set<string>()
+  const sourcesById = new Map<string, Source>()
   for (const [index, source] of sources.entries()) {
     if (sourceIds.has(source.id)) {
       fail(
@@ -478,6 +520,7 @@ export function parseProject(value: unknown): Project {
       )
     }
     sourceIds.add(source.id)
+    sourcesById.set(source.id, source)
   }
 
   const trackIds = new Set<string>()
@@ -496,12 +539,14 @@ export function parseProject(value: unknown): Project {
         fail(`${where}.id`, `repeats the id ${JSON.stringify(clip.id)} — ids are never reused`)
       }
       clipIds.add(clip.id)
-      if (!sourceIds.has(clip.sourceId)) {
+      const source = sourcesById.get(clip.sourceId)
+      if (source === undefined) {
         fail(
           `${where}.sourceId`,
           `is ${JSON.stringify(clip.sourceId)}, which no Source in this Project carries`
         )
       }
+      checkWithinSource(clip, source, timebase, where)
     }
   }
 

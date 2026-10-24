@@ -8,10 +8,11 @@ import {
   type Timebase,
 } from "@cutroom/model"
 
-import { FakeAudioContext, FakeBuffer, FakeGain } from "./fake-audio-context"
+import { FakeAudioContext, FakeBuffer, FakeCompressor, FakeGain } from "./fake-audio-context"
 import type { PcmChunk } from "./graph"
 import {
   CHUNK_SAMPLES,
+  PREROLL_SECONDS,
   requestedExportPcm,
   streamExportAudio,
   type ExportAudioPcmReply,
@@ -53,8 +54,13 @@ class FakeOfflineContext extends FakeAudioContext implements OfflineMixContext {
       if (started === null || !(buffer instanceof FakeBuffer)) continue
       if (buffer.sampleRate !== this.sampleRate) throw new Error("the fake does not resample")
       const gain = source.connections[0]
-      if (!(gain instanceof FakeGain) || !gain.connections.includes(this.destination)) {
-        throw new Error("a node not routed through its Clip's gain")
+      const limiter = gain instanceof FakeGain ? gain.connections[0] : undefined
+      if (
+        !(gain instanceof FakeGain) ||
+        !(limiter instanceof FakeCompressor) ||
+        !limiter.connections.includes(this.destination)
+      ) {
+        throw new Error("a node not routed through its Clip's gain and the limiter")
       }
       const at = onSample(started.when, "start")
       const offset = onSample(started.offset, "offset")
@@ -246,11 +252,12 @@ describe("streamExportAudio", () => {
       pcm: fakePcm(NTSC, [{ clip: clip("a", 0, 240), channels: [ramp] }]),
       segmentSeconds: 3,
     })
-    // From sample 72072 (Frame 45): to second 3, to second 6, to Frame 240's sample 384384.
+    // From sample 72072 (Frame 45): to second 3, to second 6, to Frame 240's sample 384384, each
+    // rendering a pre-roll earlier (a second, all of it Timeline here) that is then dropped.
     expect(contexts.map((context) => context.length)).toEqual([
-      144_000 - 72_072,
-      144_000,
-      384_384 - 288_000,
+      144_000 - 72_072 + RATE,
+      144_000 + RATE,
+      384_384 - 288_000 + RATE,
     ])
   })
 
@@ -317,7 +324,13 @@ describe("streamExportAudio", () => {
       range: { fromFrame: 0, toFrame: 900 },
       pcm: fakePcm(VIDEO, [{ clip: clip("a", 0, 900), channels: [() => 0.5] }], 16_384),
     })
-    expect(contexts.map((context) => context.length)).toEqual([480_000, 480_000, 480_000])
+    // Every segment renders a pre-roll earlier — the first too, over silence before the Timeline,
+    // so the limiter's delay has room to be compensated from its very first sample.
+    expect(contexts.map((context) => context.length)).toEqual([
+      480_000 + RATE,
+      480_000 + RATE,
+      480_000 + RATE,
+    ])
     expect(Math.max(...sent.map((chunk) => chunk.channels[0]!.length))).toBe(CHUNK_SAMPLES)
   })
 
@@ -489,5 +502,120 @@ describe("requestedExportPcm", () => {
     controller.abort()
     await expect(pulled).rejects.toMatchObject({ name: "AbortError" })
     expect(listeners.size).toBe(0)
+  })
+})
+
+describe("the pre-roll and the limiter's delay (ADR 0022)", () => {
+  const loud: Sound = { clip: clip("a", 0, 300), channels: [() => 0.5] }
+
+  it("is a second, longer than the limiter's 100 ms release", () => {
+    expect(PREROLL_SECONDS).toBe(1)
+  })
+
+  it("renders every segment a pre-roll longer, the first included", async () => {
+    const { contexts } = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 0, toFrame: 150 },
+      pcm: fakePcm(VIDEO, [loud]),
+      segmentSeconds: 2,
+    })
+    // 5 s in segments [0,2) [2,4) [4,5), each with a full second before it. Before the Timeline's
+    // start that second is silence; it must still be there, or the first samples a measured delay
+    // moves earlier would have nowhere to go (found in the browser: a click 192 samples late).
+    expect(contexts.map((context) => context.length)).toEqual([
+      2 * RATE + RATE,
+      2 * RATE + RATE,
+      1 * RATE + RATE,
+    ])
+
+    const shortRun = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 15, toFrame: 60 },
+      pcm: fakePcm(VIDEO, [loud]),
+    })
+    // Starting half a second in: the pre-roll is a full second all the same.
+    expect(shortRun.contexts.map((context) => context.length)).toEqual([
+      60 * (RATE / 30) - 15 * (RATE / 30) + RATE,
+    ])
+  })
+
+  it("sends the same samples as without a pre-roll: the extra leading samples are dropped", async () => {
+    const sound: Sound = { clip: clip("a", 0, 150), channels: [ramp, (sample) => -ramp(sample)] }
+    const { joined } = await mixAll({
+      scene: sceneOf(VIDEO, sound.clip),
+      range: { fromFrame: 0, toFrame: 150 },
+      pcm: fakePcm(VIDEO, [sound]),
+      segmentSeconds: 2,
+      chunkSamples: 5000,
+    })
+    expect(joined[0]).toHaveLength(5 * RATE)
+    for (let i = 0; i < 5 * RATE; i++) {
+      if (joined[0]![i] !== ramp(i) || joined[1]![i] !== -ramp(i)) throw new Error(`sample ${i}`)
+    }
+  })
+
+  it("keeps chunks back to the pre-roll, so a later segment hears the sound before its start", async () => {
+    const { contexts } = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 0, toFrame: 300 },
+      pcm: fakePcm(VIDEO, [loud]),
+      segmentSeconds: 2,
+    })
+    for (const context of contexts.slice(1)) {
+      const starts = context.sources.map((source) => source.started!)
+      expect(Math.min(...starts.map((started) => started.when))).toBe(0)
+      // Every sample of the context, pre-roll included, is covered by the loud Clip.
+      const covered = starts.reduce((sum, started) => sum + Math.round(started.duration * RATE), 0)
+      expect(covered).toBe(context.length)
+    }
+  })
+
+  it("schedules every segment's chunks earlier by limiterDelaySeconds", async () => {
+    const delay = 288 / RATE
+    const base = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 0, toFrame: 90 },
+      pcm: fakePcm(VIDEO, [loud]),
+      segmentSeconds: 1,
+    })
+    const shifted = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 0, toFrame: 90 },
+      pcm: fakePcm(VIDEO, [loud]),
+      segmentSeconds: 1,
+      limiterDelaySeconds: delay,
+    })
+    expect(shifted.contexts).toHaveLength(base.contexts.length)
+    // Chunks that sound later in the segment (the pre-roll's own start is at the context's start)
+    // are placed `delay` earlier, at the same offset into their buffers.
+    let compared = 0
+    // Matched by where in its buffer each node starts, not by position: a piece that would end
+    // before the context's start is simply not made once it moves earlier.
+    shifted.contexts.forEach((context, index) => {
+      const plain = base.contexts[index]!.sources
+      for (const source of plain) {
+        const was = source.started!
+        if (was.when <= delay) continue
+        const now = context.sources.find(
+          (candidate) =>
+            Math.abs(candidate.started!.offset - was.offset) < 1e-9 &&
+            Math.abs(candidate.started!.when - (was.when - delay)) < 1e-9
+        )
+        expect(now, `a node at offset ${was.offset}`).toBeDefined()
+        expect(now!.started!.when).toBeCloseTo(was.when - delay, 9)
+        compared += 1
+      }
+    })
+    expect(compared).toBeGreaterThan(0)
+  })
+
+  it("makes every segment's one limiter", async () => {
+    const { contexts } = await mixAll({
+      scene: sceneOf(VIDEO, loud.clip),
+      range: { fromFrame: 0, toFrame: 90 },
+      pcm: fakePcm(VIDEO, [loud]),
+      segmentSeconds: 1,
+    })
+    for (const context of contexts) expect(context.compressors).toHaveLength(1)
   })
 })

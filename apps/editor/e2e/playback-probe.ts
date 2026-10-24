@@ -241,6 +241,12 @@ function installProbe({ key, workerLoad }: { key: string; workerLoad: WorkerLoad
   const start = proto.start
   const stop = proto.stop
   proto.start = function (this: AudioBufferSourceNode, when = 0, offset = 0, duration?: number) {
+    // Playback only: the limiter's delay measurement and the export's mix start nodes in an
+    // OfflineAudioContext, on a clock of their own (ADR 0022), and they are not what is heard.
+    if (!(this.context instanceof AudioContext)) {
+      start.call(this, when, offset, duration)
+      return
+    }
     const buffer = this.buffer
     const rate = buffer?.sampleRate ?? this.context.sampleRate
     const length = buffer?.length ?? 0
@@ -287,6 +293,24 @@ function installProbe({ key, workerLoad }: { key: string; workerLoad: WorkerLoad
 /** Installs the probe. Call before `page.goto`. */
 export async function installPlaybackProbe(page: Page, options: ProbeOptions = {}): Promise<void> {
   await page.addInitScript(installProbe, { key: PROBE_KEY, workerLoad: options.workerLoad ?? null })
+}
+
+/**
+ * The limiter's delay at `sampleRate`, as the app measures it (ADR 0022). The graph schedules every
+ * node this much before its sound is to be heard, so a node's origin is the instant it is *put*,
+ * and origin + this delay the instant it is *heard*. A spec comparing the picture with the sound
+ * compares it with the heard instant.
+ */
+export async function limiterDelay(page: Page, sampleRate: number): Promise<number> {
+  return page.evaluate(
+    async ({ specifier, rate }) => {
+      const module = (await import(specifier)) as {
+        measureBrowserLimiterDelay(sampleRate: number): Promise<number>
+      }
+      return module.measureBrowserLimiterDelay(rate)
+    },
+    { specifier: "/src/audio/limiter-delay.ts", rate: sampleRate }
+  )
 }
 
 /** Everything recorded so far. */

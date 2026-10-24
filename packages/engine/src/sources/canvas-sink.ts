@@ -213,6 +213,21 @@ async function sinkForClipIn(
   // over a track that is no longer the Source's would decode a file the user has moved on from.
   if (trackOf(clip.sourceId) !== track) return null
 
+  // Two callers may have built a sink for this Clip across the same awaits (a preparation and the
+  // job after it). The first to land is kept; one in its place that no longer fits is closed, not
+  // silently overwritten with its decoder still open (review R-13).
+  const raced = sinks.get(clip.clipId)
+  if (raced !== undefined && raced !== held) {
+    if (
+      raced.track === track &&
+      raced.frameSize.width === frameSize.width &&
+      raced.frameSize.height === frameSize.height
+    ) {
+      return raced
+    }
+    raced.abandonStream()
+  }
+
   const samples = new VideoSampleSink(track)
   const canvas = new OffscreenCanvas(placement.width, placement.height)
   const drawing = canvas.getContext("2d", { alpha: false })

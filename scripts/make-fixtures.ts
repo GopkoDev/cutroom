@@ -125,6 +125,11 @@ function counterFilter({ cellWidth, cellHeight, margin }: Sprite): string {
 // exactly on the whole second, which is what the A/V alignment assertions read.
 const CLICK_TRACK = "aevalsrc='0.6*sin(2*PI*1000*t)*lt(mod(t,1),0.02)':s=48000"
 
+// The same click, loud: 1.2 on the mono source, which the stereo encode (`-ac 2`) brings to about
+// 0.85 per channel. One of these alone stays below full scale; two of them on one instant sum to
+// about 1.7, which is what the two-Track mix (AC-23) has to bring back below full scale.
+const LOUD_CLICK_TRACK = "aevalsrc='1.2*sin(2*PI*1000*t)*lt(mod(t,1),0.02)':s=48000"
+
 // ---------------------------------------------------------------------- running ffmpeg
 
 function run(command: string, args: string[]): Promise<void> {
@@ -156,6 +161,8 @@ type MovingFixture = {
   timebase: string // exact ratio, as ffmpeg takes it — never a decimal
   seconds: number
   audio: boolean
+  /** Sound is the loud click (`LOUD_CLICK_TRACK`) rather than the ordinary one. */
+  loud?: boolean
   crf: number
   preset: string
 }
@@ -182,7 +189,7 @@ async function encodeMoving(f: MovingFixture, target: string): Promise<void> {
     sprite.path,
   ]
 
-  if (f.audio) args.push("-f", "lavfi", "-i", CLICK_TRACK)
+  if (f.audio) args.push("-f", "lavfi", "-i", f.loud === true ? LOUD_CLICK_TRACK : CLICK_TRACK)
 
   args.push(
     "-filter_complex",
@@ -229,6 +236,17 @@ const MOVING: MovingFixture[] = [
     timebase: "30",
     seconds: 30,
     audio: true,
+    crf: 20,
+    preset: "veryfast",
+  },
+  {
+    name: "loud-1080p30.mp4",
+    width: 1920,
+    height: 1080,
+    timebase: "30",
+    seconds: 10,
+    audio: true,
+    loud: true,
     crf: 20,
     preset: "veryfast",
   },

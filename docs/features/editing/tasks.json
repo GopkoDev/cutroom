@@ -1,0 +1,468 @@
+{
+  "slug": "editing",
+  "tasks": [
+    {
+      "id": "T001",
+      "title": "Diagnose and fix the flaky engine-worker e2e check before any feature work",
+      "layer": "tests",
+      "deps": [],
+      "acs": [],
+      "dod": "engine-worker.spec.ts passes 50 consecutive repeat runs (or a documented quarantine decision with evidence exists) and the diagnosis is recorded in _evidence/engine-worker-flake.md",
+      "files_hint": [
+        "apps/editor/e2e/engine-worker.spec.ts",
+        "docs/features/editing/_evidence/"
+      ],
+      "file": "docs/features/editing/tasks/T001-diagnose-flaky-engine-worker-e2e.md",
+      "status": "done"
+    },
+    {
+      "id": "T002",
+      "title": "Give CommandError a machine-readable refusal reason across every existing refusal",
+      "layer": "domain",
+      "deps": [],
+      "acs": [
+        "AC-15"
+      ],
+      "dod": "every CommandError thrown by apply.ts and import.ts carries a tested RefusalReason, and RefusalReason + MAX_VIDEO_TRACKS are exported from @cutroom/model",
+      "files_hint": [
+        "packages/model/src/commands/apply.ts",
+        "packages/model/src/commands/import.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/index.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T002-command-error-carries-refusal-reason.md",
+      "status": "done"
+    },
+    {
+      "id": "T003",
+      "title": "Refuse Clips outside their Source and a Timeline with no Track when a Project loads",
+      "layer": "domain",
+      "deps": [],
+      "acs": [
+        "AC-02",
+        "AC-22"
+      ],
+      "dod": "parseProject refuses a Clip outside its Source and a zero-Track Timeline, and the step-1 fixture Projects still parse",
+      "files_hint": [
+        "packages/model/src/document/parse.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T003-parse-project-source-bounds-and-one-track.md",
+      "status": "done"
+    },
+    {
+      "id": "T004",
+      "title": "Add wholeFramesIn, the trimRange rule and the trim-clip command",
+      "layer": "domain",
+      "deps": [
+        "T002"
+      ],
+      "acs": [
+        "AC-01",
+        "AC-02",
+        "AC-03",
+        "AC-25"
+      ],
+      "dod": "wholeFramesIn, trimRange and trim-clip are exported and unit-tested for AC-01..AC-03 and AC-25, and every trim result passes parseProject",
+      "files_hint": [
+        "packages/model/src/timebase.ts",
+        "packages/model/src/editing/limits.ts",
+        "packages/model/src/editing/index.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/src/index.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T004-trim-range-and-trim-clip.md",
+      "status": "done"
+    },
+    {
+      "id": "T005",
+      "title": "Add the splitTargets rule and the split-clips command",
+      "layer": "domain",
+      "deps": [
+        "T004"
+      ],
+      "acs": [
+        "AC-04",
+        "AC-05",
+        "AC-29"
+      ],
+      "dod": "splitTargets and split-clips are exported and unit-tested for AC-04, AC-05 and AC-29 with exact second-half In-points",
+      "files_hint": [
+        "packages/model/src/editing/split.ts",
+        "packages/model/src/editing/index.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T005-split-targets-and-split-clips.md",
+      "status": "done"
+    },
+    {
+      "id": "T006",
+      "title": "Add the checkMove placement rule and the move-clips command",
+      "layer": "domain",
+      "deps": [
+        "T005"
+      ],
+      "acs": [
+        "AC-06",
+        "AC-07",
+        "AC-08",
+        "AC-09"
+      ],
+      "dod": "checkMove and move-clips are exported and unit-tested for AC-06..AC-09, all-or-none, ids kept",
+      "files_hint": [
+        "packages/model/src/editing/placement.ts",
+        "packages/model/src/editing/index.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T006-check-move-and-move-clips.md",
+      "status": "done"
+    },
+    {
+      "id": "T007",
+      "title": "Add the rippleShifts rule and the delete-clips command, plain and ripple",
+      "layer": "domain",
+      "deps": [
+        "T006"
+      ],
+      "acs": [
+        "AC-10",
+        "AC-11"
+      ],
+      "dod": "rippleShifts and delete-clips (plain and ripple) are exported and unit-tested for AC-10 and AC-11, inverse patches restore every Clip",
+      "files_hint": [
+        "packages/model/src/editing/ripple.ts",
+        "packages/model/src/editing/index.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T007-ripple-shifts-and-delete-clips.md",
+      "status": "done"
+    },
+    {
+      "id": "T008",
+      "title": "Add the duplicateDelta rule and the duplicate-clips command",
+      "layer": "domain",
+      "deps": [
+        "T007"
+      ],
+      "acs": [
+        "AC-12",
+        "AC-13"
+      ],
+      "dod": "duplicateDelta and duplicate-clips are exported and unit-tested for AC-12 and AC-13, copies never overlap a Clip",
+      "files_hint": [
+        "packages/model/src/editing/placement.ts",
+        "packages/model/src/editing/index.ts",
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T008-duplicate-delta-and-duplicate-clips.md",
+      "status": "done"
+    },
+    {
+      "id": "T009",
+      "title": "Add the add-track and remove-track commands with the two-Track limit",
+      "layer": "domain",
+      "deps": [
+        "T008"
+      ],
+      "acs": [
+        "AC-20",
+        "AC-21",
+        "AC-22",
+        "AC-30"
+      ],
+      "dod": "add-track and remove-track are unit-tested for AC-20, AC-21, AC-22 and AC-30 with track-limit and last-track reasons",
+      "files_hint": [
+        "packages/model/src/commands/index.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T009-add-track-and-remove-track.md",
+      "status": "done"
+    },
+    {
+      "id": "T010",
+      "title": "Add placeSourceCommand and make importCommands reuse it",
+      "layer": "domain",
+      "deps": [
+        "T009"
+      ],
+      "acs": [
+        "AC-24",
+        "AC-25"
+      ],
+      "dod": "placeSourceCommand is exported, importCommands uses it, add-clip refuses source-bounds, AC-24 unit-tested",
+      "files_hint": [
+        "packages/model/src/commands/import.ts",
+        "packages/model/src/commands/apply.ts",
+        "packages/model/src/index.ts",
+        "packages/model/test/"
+      ],
+      "file": "docs/features/editing/tasks/T010-place-source-command.md",
+      "status": "done"
+    },
+    {
+      "id": "T011",
+      "title": "Pin Frame accuracy and rule-command pairing with model property tests",
+      "layer": "tests",
+      "deps": [
+        "T010",
+        "T003"
+      ],
+      "acs": [
+        "AC-01",
+        "AC-04",
+        "AC-06",
+        "AC-32"
+      ],
+      "dod": "model property tests prove Frame-exact head Trim, Split and move, rule/command pairing, and empty patches for no-op commands",
+      "files_hint": [
+        "packages/model/test/editing.property.test.ts",
+        "packages/model/package.json"
+      ],
+      "file": "docs/features/editing/tasks/T011-frame-accuracy-property-tests.md",
+      "status": "done"
+    },
+    {
+      "id": "T012",
+      "title": "Cap history at 200 named steps and add the Selection, pruned after undo and redo",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-14",
+        "AC-15",
+        "AC-16",
+        "AC-28"
+      ],
+      "dod": "store keeps at most 200 labelled history entries, exposes next undo/redo labels, and has a Selection slice pruned after undo/redo; unit-tested",
+      "files_hint": [
+        "apps/editor/src/store/index.ts",
+        "apps/editor/src/store/selection.ts",
+        "apps/editor/src/store/index.test.ts",
+        "apps/editor/src/store/selection.test.ts"
+      ],
+      "file": "docs/features/editing/tasks/T012-store-history-labels-cap-and-selection.md",
+      "status": "done"
+    },
+    {
+      "id": "T013",
+      "title": "Add the drag-preview slice and retire the open-Gesture save debounce",
+      "layer": "app",
+      "deps": [
+        "T012",
+        "T010"
+      ],
+      "acs": [
+        "AC-07",
+        "AC-17",
+        "AC-18",
+        "AC-19"
+      ],
+      "dod": "drag slice previews trims and moves through trimRange/checkMove, commits once on release, cancels on Escape, blocks undo/redo while open; open-Gesture debounce removed",
+      "files_hint": [
+        "apps/editor/src/store/drag.ts",
+        "apps/editor/src/store/drag.test.ts",
+        "apps/editor/src/store/index.ts",
+        "apps/editor/src/storage/projects.ts"
+      ],
+      "file": "docs/features/editing/tasks/T013-drag-preview-slice.md",
+      "status": "done"
+    },
+    {
+      "id": "T014",
+      "title": "Write one store function per Gesture, stopping Playback first, with refusal wording",
+      "layer": "app",
+      "deps": [
+        "T013"
+      ],
+      "acs": [
+        "AC-04",
+        "AC-05",
+        "AC-10",
+        "AC-11",
+        "AC-12",
+        "AC-13",
+        "AC-20",
+        "AC-21",
+        "AC-22",
+        "AC-24",
+        "AC-25",
+        "AC-26",
+        "AC-29",
+        "AC-30",
+        "AC-31",
+        "AC-32"
+      ],
+      "dod": "store/edit.ts exposes split, delete, ripple delete, duplicate, add/remove Track and place Source, each stopping Playback, one labelled history entry, refusals worded; unit-tested for the listed ACs",
+      "files_hint": [
+        "apps/editor/src/store/edit.ts",
+        "apps/editor/src/store/edit.test.ts",
+        "apps/editor/src/ui/failure-wording.ts",
+        "apps/editor/src/store/index.ts"
+      ],
+      "file": "docs/features/editing/tasks/T014-gesture-functions-and-refusal-wording.md",
+      "status": "done"
+    },
+    {
+      "id": "T015",
+      "title": "Mix every Clip through one limiter with its measured delay, in Playback and Export",
+      "layer": "app",
+      "deps": [],
+      "acs": [
+        "AC-23"
+      ],
+      "dod": "every Clip feeds one limiter whose measured delay is compensated in Playback and Export, export segments use a pre-roll, and unit tests cover wiring, compensation and the seam",
+      "files_hint": [
+        "apps/editor/src/audio/graph.ts",
+        "apps/editor/src/audio/limiter-delay.ts",
+        "apps/editor/src/audio/offline-mix.ts",
+        "apps/editor/src/audio/fake-audio-context.ts",
+        "apps/editor/src/audio/graph.test.ts",
+        "apps/editor/src/audio/offline-mix.test.ts",
+        "apps/editor/src/audio/limiter-delay.test.ts"
+      ],
+      "file": "docs/features/editing/tasks/T015-master-bus-limiter-and-measured-delay.md",
+      "status": "done"
+    },
+    {
+      "id": "T016",
+      "title": "Rebuild the Timeline as Track rows of selectable Clip views with Track headers",
+      "layer": "ui",
+      "deps": [
+        "T014",
+        "T001"
+      ],
+      "acs": [
+        "AC-08",
+        "AC-14",
+        "AC-20",
+        "AC-21",
+        "AC-22",
+        "AC-30"
+      ],
+      "dod": "the Timeline renders Track rows of selectable ClipViews with Track headers (add/remove, refusal notice), per-Clip subscriptions, and e2e covers AC-14, AC-20, AC-21, AC-22, AC-30",
+      "files_hint": [
+        "apps/editor/src/ui/timeline/",
+        "apps/editor/src/ui/Timeline.tsx",
+        "apps/editor/src/ui/EditorLayout.tsx"
+      ],
+      "file": "docs/features/editing/tasks/T016-timeline-tracks-clips-and-track-headers.md",
+      "status": "done"
+    },
+    {
+      "id": "T017",
+      "title": "Drive Trim and move drags from Clip handles and bodies through the drag slice",
+      "layer": "ui",
+      "deps": [
+        "T016"
+      ],
+      "acs": [
+        "AC-01",
+        "AC-02",
+        "AC-03",
+        "AC-06",
+        "AC-07",
+        "AC-08",
+        "AC-09",
+        "AC-17",
+        "AC-19",
+        "AC-25",
+        "AC-31"
+      ],
+      "dod": "Trim and move drags work through handles and bodies with live refusal marks and Escape cancel; e2e editing-drag.spec.ts covers AC-01..03, AC-06..09, AC-17, AC-19, AC-25, AC-31",
+      "files_hint": [
+        "apps/editor/src/ui/timeline/",
+        "apps/editor/e2e/editing-drag.spec.ts"
+      ],
+      "file": "docs/features/editing/tasks/T017-trim-and-move-drags-on-the-timeline.md",
+      "status": "done"
+    },
+    {
+      "id": "T018",
+      "title": "Add the edit toolbar, named Undo and Redo, keyboard shortcuts and the Place action",
+      "layer": "ui",
+      "deps": [
+        "T017"
+      ],
+      "acs": [
+        "AC-04",
+        "AC-05",
+        "AC-10",
+        "AC-11",
+        "AC-12",
+        "AC-13",
+        "AC-16",
+        "AC-18",
+        "AC-24",
+        "AC-28",
+        "AC-29"
+      ],
+      "dod": "EditToolbar, named UndoRedo, shortcuts.ts and the Place button drive the Gesture functions; e2e editing-commands.spec.ts covers AC-04, AC-05, AC-10..13, AC-16, AC-18, AC-24, AC-28, AC-29",
+      "files_hint": [
+        "apps/editor/src/ui/EditToolbar.tsx",
+        "apps/editor/src/ui/UndoRedo.tsx",
+        "apps/editor/src/ui/shortcuts.ts",
+        "apps/editor/src/ui/TopBar.tsx",
+        "apps/editor/src/ui/SourcesPanel.tsx",
+        "apps/editor/src/ui/timeline/",
+        "apps/editor/e2e/editing-commands.spec.ts"
+      ],
+      "file": "docs/features/editing/tasks/T018-edit-toolbar-undo-redo-shortcuts-place.md",
+      "status": "done"
+    },
+    {
+      "id": "T019",
+      "title": "Prove the edited Export matches the Preview at every Edit point, with both sounds mixed",
+      "layer": "tests",
+      "deps": [
+        "T018",
+        "T015"
+      ],
+      "acs": [
+        "AC-23",
+        "AC-26",
+        "AC-27"
+      ],
+      "dod": "e2e proves the edited Export matches the Preview on both sides of every Edit point and in Gaps (SC-007 extended), two-Track sound is mixed without clipping in sync, and edits during an Export do not reach the file",
+      "files_hint": [
+        "apps/editor/e2e/export-fidelity.spec.ts",
+        "apps/editor/e2e/editing-export.spec.ts",
+        "apps/editor/e2e/av-sync.spec.ts",
+        "scripts/make-fixtures.ts"
+      ],
+      "file": "docs/features/editing/tasks/T019-edited-export-fidelity-and-two-track-sound.md",
+      "status": "done"
+    },
+    {
+      "id": "T020",
+      "title": "Measure the drag, Preview, undo and two-Track playback budgets on a heavy Project",
+      "layer": "tests",
+      "deps": [
+        "T019"
+      ],
+      "acs": [
+        "AC-16",
+        "AC-17",
+        "AC-23"
+      ],
+      "dod": "e2e measures drag p95 ≤16.7 ms, Preview after edit p95 ≤300 ms, undo p95 ≤100 ms, ≤1% skipped Frames at Edit points and with two Tracks (SC-002 bar), results recorded in _evidence/performance.md",
+      "files_hint": [
+        "apps/editor/e2e/editing-performance.spec.ts",
+        "apps/editor/e2e/playback-rate.spec.ts",
+        "docs/features/editing/_evidence/"
+      ],
+      "file": "docs/features/editing/tasks/T020-editing-performance-nfrs.md",
+      "status": "done"
+    }
+  ]
+}

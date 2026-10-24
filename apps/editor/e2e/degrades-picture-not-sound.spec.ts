@@ -13,6 +13,7 @@ import {
   pictureAgainstSound,
   probeLog,
   type WorkerLoad,
+  limiterDelay,
 } from "./playback-probe"
 
 // T070 (FR-012, quickstart's US2 step 9): "When the product cannot produce Frames fast enough, it
@@ -111,8 +112,12 @@ async function playToTheEndAndCheck(
   if (stoppedAt === null || run.playingAt.contextTime === null) {
     throw new Error("the run's transport posts carry no audio clock reading")
   }
+  // Nodes are put the limiter's measured delay before they are heard (ADR 0022); the picture is
+  // measured against the sound as heard.
+  const limiterDelaySeconds = await limiterDelay(page, sound.sampleRate)
+  const heard = sound.anchor + limiterDelaySeconds
   const shown = pictureAgainstSound(run.rendered, {
-    anchor: sound.anchor,
+    anchor: heard,
     timebase: TIMEBASE,
     fromFrame: 0,
     endsAt: stoppedAt,
@@ -134,7 +139,7 @@ async function playToTheEndAndCheck(
   const deviations = sound.clicks.map((c) => Math.abs(c.deviation))
   // Where a click is first heard inside its second; the same for every second, Frame 0's too.
   const onset = sound.clicks[1]?.deviation ?? Number.NaN
-  const stopPosition = (stoppedAt - sound.anchor) * timebaseAsNumber(TIMEBASE)
+  const stopPosition = (stoppedAt - heard) * timebaseAsNumber(TIMEBASE)
   const firstLeads = run.nodes.slice(0, 3).map((n) => ((n.when - n.calledAt) * 1_000).toFixed(1))
 
   test.info().annotations.push(
@@ -186,7 +191,7 @@ async function playToTheEndAndCheck(
   expect(sound.worstGridResidual).toBeLessThan(0.01)
   // The anchor is the transport's: once the start's sound was in hand, the start margin (0.05 s)
   // ahead, so never sooner than that after the press. How much later is the load's business.
-  expect(sound.anchor - run.playingAt.contextTime).toBeGreaterThanOrEqual(0.05 - 0.005)
+  expect(heard - run.playingAt.contextTime).toBeGreaterThanOrEqual(0.05 - 0.005)
   // Every whole-second click, once, within a millisecond of its second, and all at the same sample
   // of it, second 0 included. (On the fixture each is first above the threshold at sample +7, as
   // ffmpeg decodes it.)

@@ -58,8 +58,13 @@ interface EngineHarness {
    * none yet. Each event is returned once: two `render-frame`s need two `frame-rendered`s. */
   next(type: string, timeoutMs?: number): Promise<EngineEventRecord>
   seen(): EngineEventRecord[]
-  /** The rendered pixels, read back off the placeholder canvas the worker was given control of. */
-  pixels(): Promise<{
+  /**
+   * The rendered pixels, read back off the placeholder canvas the worker was given control of.
+   * `expected` is the frame size the worker should have committed: the read waits (up to a few
+   * seconds) for the placeholder to show it and stay there, then reads whatever is shown, so a
+   * wrong size still fails the test's assertion rather than this wait.
+   */
+  pixels(expected: { width: number; height: number }): Promise<{
     width: number
     height: number
     uniform: [number, number, number, number] | null
@@ -138,10 +143,26 @@ test.beforeEach(async ({ page }) => {
             look()
           }),
 
-        pixels: async () => {
-          // The worker's WebGL frames reach the placeholder canvas when the compositor next runs,
-          // so two animation frames pass before anything is read.
-          await new Promise((settle) => requestAnimationFrame(() => requestAnimationFrame(settle)))
+        pixels: async (expected: { width: number; height: number }) => {
+          // The worker's WebGL frames reach the placeholder canvas when the compositor gets to
+          // them, which is not a fixed number of animation frames: under load (the full suite,
+          // with media specs keeping the GPU busy) two frames were once not enough and the read
+          // saw the placeholder's own 16×9 before the first commit arrived (diagnosed in
+          // docs/features/editing/_evidence/engine-worker-flake.md). So the read waits until the
+          // placeholder shows the expected size and has held it for three animation frames, or
+          // until five seconds pass, and then reads what is there either way.
+          const frame = () => new Promise((settle) => requestAnimationFrame(settle))
+          const shows = (width: number, height: number) =>
+            width === expected.width && height === expected.height
+          const giveUpAt = performance.now() + 5_000
+          let held = 0
+          while (held < 3 && performance.now() < giveUpAt) {
+            await frame()
+            const shown = await createImageBitmap(placeholder)
+            held = shows(shown.width, shown.height) ? held + 1 : 0
+            shown.close()
+          }
+          await frame()
 
           const bitmap = await createImageBitmap(placeholder)
           const probe = new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -242,7 +263,11 @@ test("a Scene is accepted and a Frame renders at the Project's frame size", asyn
       engine.send({ type: "render-frame", frame: 0, reason: "scrub" })
       const rendered = await engine.next("frame-rendered")
 
-      return { rendered, pixels: await engine.pixels(), seen: engine.seen().map((e) => e.type) }
+      return {
+        rendered,
+        pixels: await engine.pixels(frameSize),
+        seen: engine.seen().map((e) => e.type),
+      }
     },
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE, scene: EMPTY_SCENE }
   )
@@ -278,13 +303,13 @@ test("a newer Scene with a different frame size moves the canvas", async ({ page
       engine.send({ type: "scene", revision: 1, scene })
       engine.send({ type: "render-frame", frame: 0, reason: "scrub" })
       await engine.next("frame-rendered")
-      const atInitSize = await engine.pixels()
+      const atInitSize = await engine.pixels(frameSize)
 
       engine.send({ type: "scene", revision: 2, scene: { ...scene, frameSize: resized } })
       engine.send({ type: "render-frame", frame: 1, reason: "scrub" })
       await engine.next("frame-rendered")
 
-      return { atInitSize, afterwards: await engine.pixels() }
+      return { atInitSize, afterwards: await engine.pixels(resized) }
     },
     {
       workerUrl: WORKER_URL,
@@ -329,7 +354,7 @@ test("a Scene older than the one the worker holds is ignored", async ({ page }) 
       engine.send({ type: "render-frame", frame: 13, reason: "clock" })
       const again = await engine.next("frame-rendered", 20_000)
 
-      return { rendered, again, pixels: await engine.pixels() }
+      return { rendered, again, pixels: await engine.pixels(frameSize) }
     },
     { workerUrl: WORKER_URL, timebase: TIMEBASE, frameSize: FRAME_SIZE, scene: EMPTY_SCENE }
   )

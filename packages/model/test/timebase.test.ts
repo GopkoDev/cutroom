@@ -13,6 +13,7 @@ import {
   ticksToSeconds,
   timebaseAsNumber,
   timebaseFromTicks,
+  wholeFramesIn,
   type Rational,
   type Timebase,
 } from "../src/timebase"
@@ -735,5 +736,39 @@ describe("frameToTimecode — wall-clock, not SMPTE", () => {
     )
     expect(hours * 3600 + minutes * 60 + seconds).toBe(Number.MAX_SAFE_INTEGER)
     expect(frames).toBe(0)
+  })
+})
+
+describe("wholeFramesIn", () => {
+  it("counts whole Frames in an exact multiple, agreeing with framesForDuration", () => {
+    expect(wholeFramesIn(VIDEO, { numerator: 10, denominator: 1 })).toBe(300)
+    expect(wholeFramesIn(FILM, { numerator: 0, denominator: 1 })).toBe(0)
+    for (const frames of [0, 1, 2, 299, 300, 1001]) {
+      const duration = { numerator: frames * NTSC.denominator, denominator: NTSC.numerator }
+      expect(wholeFramesIn(NTSC, duration)).toBe(frames)
+      expect(wholeFramesIn(NTSC, duration)).toBe(framesForDuration(NTSC, duration))
+    }
+  })
+
+  it("rounds down where framesForDuration rounds up", () => {
+    // 10.02 s at 30/1 is 300.6 Frame-lengths: 300 whole Frames fit.
+    expect(wholeFramesIn(VIDEO, { numerator: 1002, denominator: 100 })).toBe(300)
+    expect(framesForDuration(VIDEO, { numerator: 1002, denominator: 100 })).toBe(301)
+    // 10 s at 30000/1001 is 299.7 Frame-lengths.
+    expect(wholeFramesIn(NTSC, { numerator: 10, denominator: 1 })).toBe(299)
+  })
+
+  it("is exactly one Frame at one Frame-length and none a hair short", () => {
+    expect(wholeFramesIn(NTSC, { numerator: 1001, denominator: 30000 })).toBe(1)
+    expect(wholeFramesIn(NTSC, { numerator: 1001 * 1000 - 1, denominator: 30000 * 1000 })).toBe(0)
+  })
+
+  it("throws a RangeError on malformed input, like every Timebase function", () => {
+    const one = { numerator: 1, denominator: 1 }
+    expect(() => wholeFramesIn({ numerator: 30, denominator: 0 }, one)).toThrow(RangeError)
+    expect(() => wholeFramesIn({ numerator: 0, denominator: 1 }, one)).toThrow(RangeError)
+    expect(() => wholeFramesIn(VIDEO, { numerator: 1, denominator: 0 })).toThrow(RangeError)
+    expect(() => wholeFramesIn(VIDEO, { numerator: -1, denominator: 1 })).toThrow(RangeError)
+    expect(() => wholeFramesIn({ numerator: -30, denominator: 1 }, one)).toThrow(RangeError)
   })
 })

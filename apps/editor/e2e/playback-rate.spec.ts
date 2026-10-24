@@ -11,6 +11,7 @@ import {
   percentile,
   pictureAgainstSound,
   probeLog,
+  limiterDelay,
 } from "./playback-probe"
 
 // T072 (SC-004): "A 1080p 30 fps Source of up to 10 minutes plays back at full rate on the
@@ -84,8 +85,11 @@ test(
     const sound = measureSound(run.nodes)
     const stoppedAt = run.stoppedAt?.contextTime ?? null
     if (stoppedAt === null) throw new Error("the stop carries no audio clock reading")
+    // Nodes are put the limiter's measured delay before they are heard (ADR 0022); the picture
+    // is measured against the sound as heard.
+    const heard = sound.anchor + (await limiterDelay(page, sound.sampleRate))
     const shown = pictureAgainstSound(run.rendered, {
-      anchor: sound.anchor,
+      anchor: heard,
       timebase: TIMEBASE,
       fromFrame: 0,
       endsAt: stoppedAt,
@@ -98,8 +102,7 @@ test(
     const minuteOf = (frame: number) => Math.floor(frame / MINUTE)
     const droppedByMinute = new Array<number>(MINUTES).fill(0)
     for (const d of run.dropped) {
-      const at =
-        d.contextTime === null ? 0 : (d.contextTime - sound.anchor) * timebaseAsNumber(TIMEBASE)
+      const at = d.contextTime === null ? 0 : (d.contextTime - heard) * timebaseAsNumber(TIMEBASE)
       droppedByMinute[Math.min(MINUTES - 1, Math.max(0, minuteOf(at)))]! += d.count
     }
 
