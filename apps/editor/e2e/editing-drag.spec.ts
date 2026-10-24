@@ -203,6 +203,23 @@ async function trim(page: Page, id: string, edge: "head" | "tail", frames: numbe
   await page.mouse.up()
 }
 
+/** Presses a key with focus off any control, as a User pressing it over the editor would. */
+async function pressKey(page: Page, key: string): Promise<void> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.press(key)
+}
+
+async function playheadFrame(page: Page): Promise<number> {
+  return Number(await page.getByTestId("timeline-playhead").getAttribute("data-frame"))
+}
+
+/** Plays from Frame 0 until the Playhead is past `frame`. */
+async function playPast(page: Page, frame: number): Promise<void> {
+  await parkAt(page, 0)
+  await play(page)
+  await expect.poll(() => playheadFrame(page), { timeout: 10_000 }).toBeGreaterThan(frame)
+}
+
 // ---------------------------------------------------------------- the tests
 
 test("AC-01: a tail Trim left then a head Trim right shorten the Clip and keep its picture", async ({
@@ -364,7 +381,11 @@ test("AC-08: a Clip dragged onto the free upper Track is on it and covers the lo
 }) => {
   const { ids } = await openWithOneClip(page)
   await addTrack(page)
-  await layout(page, ids, [{ id: "l", start: 100, duration: 200, inFrames: 200 }])
+  // m stays on the lower Track under where l lands, so the counter tells which picture is on top.
+  await layout(page, ids, [
+    { id: "l", start: 100, duration: 200, inFrames: 200 },
+    { id: "m", start: 300, duration: 200, inFrames: 600 },
+  ])
 
   const upper = page.getByTestId("timeline-track").nth(0)
   const lower = page.getByTestId("timeline-track").nth(1)
@@ -381,9 +402,13 @@ test("AC-08: a Clip dragged onto the free upper Track is on it and covers the lo
   await expectClip(page, "l", 150, 200)
   await expect(page.getByTestId("undo")).toContainText("Move")
 
-  // At Frame 160 it covers the lower Track: Source Frame 200 + 10.
-  await parkAt(page, 160)
-  await expectCounter(page, 210)
+  // At Frame 320 both Tracks hold a Clip: the lower m would show Source Frame 600 + 20, the upper
+  // l shows 200 + 170. The upper picture covers the lower one (review R-09).
+  await parkAt(page, 320)
+  await expectCounter(page, 370)
+  // Where only m is, its own picture shows: Frame 360 is past l's end (350).
+  await parkAt(page, 360)
+  await expectCounter(page, 660)
 })
 
 test("AC-09: a drag moves the whole Selection by one delta; an unselected Clip moves alone", async ({
@@ -533,6 +558,20 @@ test("AC-25: an Offline Clip can be trimmed and moved with no permission prompt"
   await expectClip(page, "x", 270, 260)
   await expect(clipById(page, "x")).toHaveAttribute("data-offline", "true")
 
+  // Split, Duplicate and delete work on it too, all without asking for the file (review R-07).
+  await clipById(page, "x").click(WAIT)
+  await parkAt(page, 400)
+  await pressKey(page, "s")
+  await expect(page.getByTestId("timeline-clip")).toHaveCount(2, WAIT)
+  await expect(page.locator('[data-testid=timeline-clip][data-start-frame="400"]')).toHaveCount(1)
+  await pressKey(page, "Meta+d")
+  await expect(page.getByTestId("timeline-clip")).toHaveCount(3, WAIT)
+  await pressKey(page, "Delete")
+  await expect(page.getByTestId("timeline-clip")).toHaveCount(2, WAIT)
+  for (const clip of await page.getByTestId("timeline-clip").all())
+    await expect(clip).toHaveAttribute("data-offline", "true")
+  expect(await pastLabels(page)).toEqual(["Trim", "Move", "Split", "Duplicate", "Delete"])
+
   expect((await picker.permissionCalls()).requested).toBe(0)
   expect(await picker.permissionOf("sync-1080p30.mp4")).toBe("prompt")
 })
@@ -549,4 +588,205 @@ test("AC-31: starting a drag during Playback stops it before the Clips move", as
   await page.mouse.up()
   await expectClip(page, "x", 250, 300)
   await expect(page.getByTestId("transport")).toHaveAttribute("aria-pressed", "false")
+})
+
+test("AC-31: a drag during Playback stops it on the Frame it had reached, not the pressed one", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "x", start: 300, duration: 500, inFrames: 100 }])
+
+  // The press lands on x's middle (Frame ~550) while Playback is still near its start.
+  await playPast(page, 15)
+  await holdMove(page, "x", 50)
+  await expect(page.getByTestId("transport")).toHaveAttribute("aria-pressed", "false", WAIT)
+  const stopped = await playheadFrame(page)
+  expect(stopped, "Playback stopped where it was, not at the press (review R-02)").toBeLessThan(300)
+  await page.mouse.up()
+  await expectClip(page, "x", 350, 500)
+  expect(await playheadFrame(page)).toBe(stopped)
+})
+
+test("AC-31 / FR-007: a click on a Clip during Playback still seeks there and keeps playing", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "x", start: 300, duration: 500, inFrames: 100 }])
+
+  await playPast(page, 15)
+  await clipById(page, "x").click(WAIT)
+  await expect.poll(() => playheadFrame(page), WAIT).toBeGreaterThanOrEqual(500)
+  await expect(page.getByTestId("transport")).toHaveAttribute("aria-pressed", "true")
+  await expect(clipById(page, "x")).toHaveAttribute("data-selected", "true")
+  await page.getByTestId("transport").click()
+})
+
+test("AC-31: S during Playback stops it and cuts at the Frame it stopped on", async ({ page }) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "x", start: 0, duration: 900, inFrames: 0 }])
+
+  await playPast(page, 20)
+  await pressKey(page, "s")
+  await expect(page.getByTestId("transport")).toHaveAttribute("aria-pressed", "false", WAIT)
+  await expect(page.getByTestId("timeline-clip")).toHaveCount(2, WAIT)
+  const stopped = await playheadFrame(page)
+  await expect(
+    page.locator(`[data-testid=timeline-clip][data-start-frame="${stopped}"]`)
+  ).toHaveCount(1)
+  expect(await pastLabels(page)).toContain("Split")
+})
+
+test("AC-09: a modifier-drag of a selected Clip moves the whole Selection; a modifier-click takes it out", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [
+    { id: "a", start: 100, duration: 100, inFrames: 0 },
+    { id: "b", start: 300, duration: 100, inFrames: 200 },
+  ])
+  await clipById(page, "a").click(WAIT)
+  await clipById(page, "b").click({ modifiers: ["Shift"] })
+
+  await page.keyboard.down("Shift")
+  await drag(page, "a", 50)
+  await page.keyboard.up("Shift")
+  await expectClip(page, "a", 150, 100)
+  await expectClip(page, "b", 350, 100)
+  await expect(page.getByTestId("undo")).toContainText("Move 2 Clips")
+
+  await clipById(page, "a").click({ modifiers: ["Shift"] })
+  await expect(clipById(page, "a")).not.toHaveAttribute("data-selected", "true", WAIT)
+  await expect(clipById(page, "b")).toHaveAttribute("data-selected", "true")
+})
+
+test("AC-07: a refused drop shows the not-allowed cursor, and a drag closes the refusal notice", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await addTrack(page)
+  await layout(page, ids, [
+    { id: "a", start: 100, duration: 100, inFrames: 0 },
+    { id: "b", start: 250, duration: 100, inFrames: 200 },
+  ])
+  // A third Track is refused: the notice is up.
+  await page.getByTestId("track-add").click(WAIT)
+  await expect(page.getByTestId("edit-refusal")).toBeVisible(WAIT)
+
+  const body = page.getByTestId("timeline-body")
+  const cursor = () => body.evaluate((el) => getComputedStyle(el).cursor)
+  await holdMove(page, "a", 200)
+  await expect(ghostOf(page, "a")).toHaveAttribute("data-drop", "refused", WAIT)
+  await expect(page.getByTestId("edit-refusal")).toHaveCount(0)
+  await expect.poll(cursor, WAIT).toBe("not-allowed")
+  await page.mouse.move(
+    (await centerOf(clipById(page, "a"))).x + 10,
+    (await centerOf(clipById(page, "a"))).y,
+    { steps: 4 }
+  )
+  await expect(ghostOf(page, "a")).toHaveAttribute("data-drop", "ok", WAIT)
+  await expect.poll(cursor, WAIT).toBe("pointer")
+  await page.mouse.up()
+})
+
+test("while a drag is open, S, Delete, Duplicate and Space change nothing", async ({ page }) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [
+    { id: "a", start: 100, duration: 100, inFrames: 0 },
+    { id: "b", start: 300, duration: 100, inFrames: 200 },
+  ])
+  await clipById(page, "a").click(WAIT)
+  const labels = await pastLabels(page)
+
+  await holdMove(page, "a", 50)
+  await expect(ghostOf(page, "a")).toHaveAttribute("data-start-frame", "150", WAIT)
+  for (const key of ["s", "Delete", "Meta+d", "Space"]) await page.keyboard.press(key)
+  await page.waitForTimeout(300)
+  await expect(page.getByTestId("timeline-clip")).toHaveCount(2)
+  await expect(page.getByTestId("transport")).toHaveAttribute("aria-pressed", "false")
+  expect(await pastLabels(page)).toEqual(labels)
+  await page.mouse.up()
+
+  await expectClip(page, "a", 150, 100)
+  await expectClip(page, "b", 300, 100)
+  expect(await pastLabels(page)).toEqual([...labels, "Move"])
+  await expect(page.getByTestId("edit-refusal")).toHaveCount(0)
+})
+
+test("AC-17: a reload with a drag open finds the Project as it was before the drag", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "x", start: 200, duration: 300, inFrames: 100 }])
+  await page.waitForTimeout(1_500) // the layout reaches storage
+  const before = await storedTimeline(page)
+
+  await holdMove(page, "x", 120)
+  await expect(ghostOf(page, "x")).toHaveAttribute("data-start-frame", "320", WAIT)
+  await page.reload() // the mouse button is still down
+  await page.mouse.up()
+  await page.getByTestId("project-row").click(WAIT)
+  await expect(page.getByTestId("editor-shell")).toBeVisible()
+  await expectClip(page, "x", 200, 300)
+  expect(await storedTimeline(page)).toBe(before)
+})
+
+test("AC-28: leaving through the Project list and coming back finds the Timeline as left, with no history", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "x", start: 200, duration: 300, inFrames: 100 }])
+  await drag(page, "x", 60)
+  await trim(page, "x", "tail", -40)
+  await expectClip(page, "x", 260, 260)
+  await expect(page.getByTestId("undo")).toContainText("Trim", WAIT)
+
+  await page.getByRole("button", { name: "Projects" }).click(WAIT)
+  await page.getByTestId("project-row").click(WAIT)
+  await expect(page.getByTestId("editor-shell")).toBeVisible()
+  await expectClip(page, "x", 260, 260)
+  await expect(page.getByTestId("undo")).toBeDisabled()
+  await expect(page.getByTestId("redo")).toBeDisabled()
+})
+
+test("AC-32: Gestures that change nothing leave the undo control naming the Gesture before them", async ({
+  page,
+}) => {
+  const { ids } = await openWithOneClip(page)
+  await layout(page, ids, [
+    { id: "a", start: 100, duration: 100, inFrames: 0 },
+    { id: "b", start: 300, duration: 100, inFrames: 200 },
+  ])
+  await drag(page, "b", 20)
+  await expectClip(page, "b", 320, 100)
+  await expect(page.getByTestId("undo")).toContainText("Move", WAIT)
+  await page.waitForTimeout(1_500) // the Move reaches storage
+  const labels = await pastLabels(page)
+  const stored = await storedTimeline(page)
+  const undoText = await page.getByTestId("undo").textContent()
+
+  // A drop where it started.
+  await holdMove(page, "a", 40)
+  await page.mouse.move(
+    (await centerOf(clipById(page, "a"))).x,
+    (await centerOf(clipById(page, "a"))).y,
+    { steps: 6 }
+  )
+  await page.mouse.up()
+  // A head Trim already at its limit: a's In-point is the Source's first Frame.
+  await trim(page, "a", "head", -30)
+  // Delete and Duplicate with nothing selected.
+  await page
+    .getByTestId("timeline-track")
+    .first()
+    .click({ position: { x: 5, y: 10 } })
+  await expect(page.locator("[data-testid=timeline-clip][data-selected=true]")).toHaveCount(0, WAIT)
+  await pressKey(page, "Delete")
+  await pressKey(page, "Meta+d")
+
+  await expectClip(page, "a", 100, 100)
+  await expectClip(page, "b", 320, 100)
+  await expect(page.getByTestId("undo")).toHaveText(undoText!)
+  expect(await pastLabels(page)).toEqual(labels)
+  await page.waitForTimeout(1_500)
+  expect(await storedTimeline(page)).toBe(stored)
 })

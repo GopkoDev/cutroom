@@ -98,6 +98,8 @@ export function TopBar({
     const onKeyDown = (event: KeyboardEvent) => {
       if (!isSpace(event) || typesText(event.target)) return
       event.preventDefault()
+      // Playback does not start under an open drag: the drag stopped it (AC-31, review R-12).
+      if (useEditorStore.getState().drag !== null) return
       if (!event.repeat) transport.toggle()
     }
     const onKeyUp = (event: KeyboardEvent) => {

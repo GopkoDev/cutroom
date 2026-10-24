@@ -328,6 +328,73 @@ describe("release (AC-17, AC-32)", () => {
   })
 })
 
+describe("the refusal notice and a Project changed under the drag (review R-11, R-12, R-16)", () => {
+  const refusal = { reason: "track-limit", title: "t", explanation: "e" }
+
+  it("opening a Trim or a move closes the refusal notice: it lasts until the next Gesture", () => {
+    const { store, drag } = setup()
+    store.getState().reportEditRefusal(refusal)
+    drag.openTrim("clip-c", "tail")
+    expect(store.getState().editRefusal).toBeNull()
+    drag.cancel()
+
+    store.getState().reportEditRefusal(refusal)
+    drag.openMove("clip-a")
+    expect(store.getState().editRefusal).toBeNull()
+  })
+
+  it("a move whose Clips left the Project mid-drag is refused with a notice, not thrown", () => {
+    const { store, drag } = setup()
+    drag.openMove("clip-c")
+    drag.moveTo(50, "track-1")
+    store.getState().run({ type: "delete-clips", at: AT, clipIds: ["clip-c"], ripple: false })
+    const project = store.getState().project
+    const past = store.getState().past
+
+    let applied: boolean | undefined
+    expect(() => (applied = drag.release())).not.toThrow()
+    expect(applied).toBe(false)
+    expect(store.getState().project).toBe(project)
+    expect(store.getState().past).toBe(past)
+    expect(store.getState().drag).toBeNull()
+    expect(store.getState().editRefusal).toMatchObject({ reason: "unknown-clip" })
+  })
+
+  it("a Trim whose edge is no longer allowed mid-drag is refused with a notice, not thrown", () => {
+    const { store, drag } = setup()
+    drag.openTrim("clip-a", "tail")
+    drag.trimTo(60)
+    // clip-a is deleted under the open Trim (a key, or an import landing): nothing to trim.
+    store.getState().run({ type: "delete-clips", at: AT, clipIds: ["clip-a"], ripple: false })
+    const project = store.getState().project
+
+    expect(() => drag.release()).not.toThrow()
+    expect(store.getState().project).toBe(project)
+    expect(store.getState().editRefusal).toMatchObject({ reason: "unknown-clip" })
+  })
+
+  it("a move that now overlaps a Clip placed mid-drag is refused with a notice, not thrown", () => {
+    const { store, drag } = setup()
+    drag.openMove("clip-d")
+    drag.moveTo(300, "track-2") // [300,400) on Track 2 is free when the drag opens
+    store.getState().run(addClip("track-2", "clip-e", 320))
+    const project = store.getState().project
+
+    expect(() => drag.release()).not.toThrow()
+    expect(store.getState().project).toBe(project)
+    expect(store.getState().editRefusal).toMatchObject({ reason: "overlap" })
+  })
+
+  it("release reports an applied move as applied when the history is full", () => {
+    const { drag } = setup()
+    for (let i = 0; i < 205; i++) {
+      drag.openMove("clip-d")
+      drag.moveTo(i % 2 === 0 ? 300 : -300, "track-2")
+      expect(drag.release(), `release ${i + 1}`).toBe(true)
+    }
+  })
+})
+
 describe("undo and redo while a drag is open (AC-18)", () => {
   it("are unavailable, name nothing, and change nothing", () => {
     const { store, drag } = setup()

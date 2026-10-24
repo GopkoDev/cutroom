@@ -312,6 +312,8 @@ describe("Tracks (AC-20, AC-21, AC-22, AC-30)", () => {
       reason: "track-limit",
       title: "A Project has at most two video Tracks for now.",
     })
+    // A refusal the User can act on carries no reducer message under Details (screens.md, R-11).
+    expect(s.store.getState().editRefusal?.detail).toBeUndefined()
   })
 
   it("removes a Track with its Clips in one step that one undo restores; the Selection is pruned", () => {
@@ -343,6 +345,7 @@ describe("Tracks (AC-20, AC-21, AC-22, AC-30)", () => {
       reason: "last-track",
       title: "A Project always keeps at least one Track.",
     })
+    expect(s.store.getState().editRefusal?.detail).toBeUndefined()
   })
 })
 
@@ -416,6 +419,35 @@ describe("every Gesture (AC-31, AC-26)", () => {
     expect(has(s.store, "clip-a")).toBe(false)
     expect(canUndo(s.store.getState())).toBe(true)
     expect(s.saver.save).toHaveBeenCalled()
+  })
+})
+
+describe("while a drag is open (review R-12)", () => {
+  it("no other Gesture acts: the drag's preview stays the only edit in flight", () => {
+    const s = setup({ twoTracks: false })
+    s.store.getState().setSelection(["clip-b"])
+    s.store.getState().setPlayhead(150)
+    s.store.getState().setDrag({
+      kind: "move",
+      grabbedClipId: "clip-b",
+      clipIds: ["clip-b"],
+      delta: 0,
+      toTrackId: null,
+      verdict: { ok: true },
+    })
+    const before = snapshot(s)
+
+    s.edit.split()
+    s.edit.deleteSelected(false)
+    s.edit.deleteSelected(true)
+    s.edit.duplicateSelected()
+    s.edit.addTrack()
+    s.edit.removeTrack("track-1")
+    s.edit.placeSource("source-1")
+
+    expectUntouched(s, before)
+    expect(s.store.getState().drag).not.toBeNull()
+    expect(s.store.getState().selection).toEqual(["clip-b"])
   })
 })
 

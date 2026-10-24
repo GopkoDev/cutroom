@@ -417,9 +417,13 @@ test("AC-10: Delete and Backspace remove the selected Clip and leave a Gap", asy
     [400, 60],
   ])
   await expectUndo(page, "Undo Delete")
-  // Nothing is shown in the Gap: the Preview reports no Clip there.
+  // The Gap is black: at Frame 300 nothing is lit, nothing reads as a digit (review R-09). Its
+  // silence in Playback and in the file is AC-27's, measured in editing-export.spec.ts.
   await parkAt(page, 300)
   await expect(page.getByTestId("preview-shown")).toContainText("showing Frame 300 of")
+  const gap = await readCounter(page)
+  expect(gap.text, "the Gap's picture").toBe("??????")
+  expect(gap.margin, "the Gap is black").toBeGreaterThan(110)
 })
 
 test("AC-11: Ripple delete closes the Gap on its own Track only, in one step", async ({ page }) => {
@@ -668,6 +672,36 @@ test("AC-24: Place adds the whole Source after the last Clip on the bottom Track
   await expectSpans(page, 0, [[0, 900]])
   expect((await clipRows(page)).map((r) => r.selected)).toEqual([true])
   await expectUndo(page, "Undo Place")
+})
+
+test("AC-24: an Offline Source is placed after the existing Clips without reading the file", async ({
+  page,
+}) => {
+  const { ids, picker } = await openWithOneClip(page)
+  await layout(page, ids, [{ id: "a", start: 100, duration: 50, inFrames: 0 }])
+  await page.waitForTimeout(1_500) // the layout reaches storage before the reload
+
+  await picker.setPermission("prompt")
+  await page.reload()
+  await page.getByTestId("project-row").click(WAIT)
+  await expect(page.getByTestId("editor-shell")).toBeVisible()
+  await expect(clipById(page, "a")).toHaveAttribute("data-offline", "true", { timeout: 20_000 })
+  const sources = await page.getByTestId("source-row").count()
+
+  await page.getByTestId("source-row").first().getByTestId("source-place").click(WAIT)
+  // After the last Clip (ending on 150), the whole Source at its recorded length, selected.
+  await expectSpans(page, 0, [
+    [100, 50],
+    [150, 900],
+  ])
+  const placed = (await clipRows(page)).find((row) => row.start === 150)!
+  expect(placed.selected).toBe(true)
+  await expect(clipById(page, placed.id)).toHaveAttribute("data-offline", "true")
+  await expectUndo(page, "Undo Place")
+  // Not imported again, and the file was never asked for.
+  await expect(page.getByTestId("source-row")).toHaveCount(sources)
+  expect((await picker.permissionCalls()).requested).toBe(0)
+  expect(await picker.permissionOf("sync-1080p30.mp4")).toBe("prompt")
 })
 
 test("AC-28: after a reload the Timeline is as left and both history controls are unavailable", async ({

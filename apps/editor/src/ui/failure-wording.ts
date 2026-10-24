@@ -22,6 +22,22 @@ export interface RefusalWords {
  * broken, so each line says what to do next. A reason this build does not know still gets words,
  * because a notice that says nothing is worse than a general one.
  */
+/**
+ * The refusals a rule function predicts and the User can act on. Their notice is the words alone;
+ * any other refusal is unexpected and also carries the reducer's message under Details
+ * (screens.md SCR-02, "error (unexpected refusal)").
+ */
+const ACTIONABLE_REFUSALS: ReadonlySet<string> = new Set([
+  "selection-not-under-frame",
+  "nothing-under-frame",
+  "track-limit",
+  "last-track",
+])
+
+export function isActionableRefusal(reason: string): boolean {
+  return ACTIONABLE_REFUSALS.has(reason)
+}
+
 export function explainRefusal(reason: string): RefusalWords {
   switch (reason) {
     case "selection-not-under-frame":

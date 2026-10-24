@@ -139,6 +139,11 @@ function TimelineBody({
   readonly children: ReactNode
 }) {
   const playheadFrame = useEditorStore((state) => state.playheadFrame)
+  // The body holds the pointer capture during a drag, so the refused-drop cursor is set here: on
+  // the ghost, which takes no pointer events, it would never show (screens.md SCR-02, R-11).
+  const refusedDrop = useEditorStore(
+    (state) => state.drag?.kind === "move" && !state.drag.verdict.ok
+  )
 
   return (
     <div
@@ -151,7 +156,10 @@ function TimelineBody({
       aria-valuemax={shown - 1}
       aria-valuenow={playheadFrame}
       aria-valuetext={`Frame ${playheadFrame}`}
-      className="relative min-w-0 flex-1 cursor-pointer touch-none outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/30"
+      className={cn(
+        "relative min-w-0 flex-1 touch-none outline-none select-none focus-visible:ring-2 focus-visible:ring-ring/30",
+        refusedDrop ? "cursor-not-allowed" : "cursor-pointer"
+      )}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -214,6 +222,17 @@ type Press =
       readonly handle: "head" | "tail" | null
       /** A press on an already-selected Clip without a modifier selects it alone on release. */
       readonly collapseOnRelease: boolean
+      /**
+       * A modifier-press on an already-selected Clip takes it out of the Selection on release, not
+       * on press: if the press becomes a drag, the whole Selection moves, this Clip with it (AC-09).
+       */
+      readonly toggleOffOnRelease: boolean
+      /**
+       * A press during Playback puts the Playhead on the pressed Frame only on a release without a
+       * drag. A drag stops Playback on the Frame it had reached (AC-31), so the press must not
+       * seek first; a click still seeks, as in step 1 (FR-007).
+       */
+      readonly scrubOnRelease: boolean
       readonly x: number
       readonly y: number
       /** The edge's Frame when the press landed, for a Trim; the Clip's start for a move. */
@@ -293,19 +312,22 @@ export function Timeline() {
     const length = Number(clipElement.dataset.durationFrames)
     const modifier = event.shiftKey || event.metaKey || event.ctrlKey
     const wasSelected = state.selection.includes(clipId)
-    if (modifier) state.toggleSelected(clipId)
-    else if (!wasSelected) state.select(clipId)
+    if (modifier && !wasSelected) state.toggleSelected(clipId)
+    else if (!modifier && !wasSelected) state.select(clipId)
+    const playing = state.transport === "playing"
     press.current = {
       kind: "clip",
       clipId,
       handle,
       collapseOnRelease: !modifier && wasSelected,
+      toggleOffOnRelease: modifier && wasSelected,
+      scrubOnRelease: playing,
       x: event.clientX,
       y: event.clientY,
       fromFrame: handle === "tail" ? start + length : start,
       dragging: false,
     }
-    moveTo(event.clientX, event.currentTarget)
+    if (!playing) moveTo(event.clientX, event.currentTarget)
   }
 
   function onPointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -355,8 +377,10 @@ export function Timeline() {
     if (current.kind === "scrub") {
       // A click on a Gap clears the Selection (AC-14); a click on the ruler only scrubs.
       if (current.onTrack) state.clearSelection()
-    } else if (current.collapseOnRelease) {
-      state.select(current.clipId)
+    } else {
+      if (current.scrubOnRelease) moveTo(current.x, event.currentTarget)
+      if (current.collapseOnRelease) state.select(current.clipId)
+      else if (current.toggleOffOnRelease) state.toggleSelected(current.clipId)
     }
   }
 

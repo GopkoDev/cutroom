@@ -22,7 +22,9 @@
 // applies to an open transaction — taking back half a Gesture is not a thing that exists.
 
 import {
+  applyCommand,
   checkMove,
+  CommandError,
   trimRange,
   type Clip,
   type Command,
@@ -30,6 +32,7 @@ import {
   type Verdict,
 } from "@cutroom/model"
 
+import { reportRefusal } from "./edit"
 import type { EditorStore } from "./index"
 
 export type TrimEdge = "head" | "tail"
@@ -110,6 +113,8 @@ export function createDragController({
       const found = project === null ? null : findClip(project, clipId)
       if (found === null) return
       stopPlayback()
+      // A drag is the next Gesture: the refusal notice of the last one closes (screens.md S1).
+      state().reportEditRefusal(null)
       state().setDrag({
         kind: "trim",
         clipId,
@@ -123,6 +128,7 @@ export function createDragController({
       const project = state().project
       if (project === null || findClip(project, clipId) === null) return
       stopPlayback()
+      state().reportEditRefusal(null)
       // Dragging a Clip that is not selected makes it the only selected Clip and moves it alone;
       // dragging a selected one moves the whole Selection (AC-09).
       if (!state().selection.includes(clipId)) state().select(clipId)
@@ -169,7 +175,7 @@ export function createDragController({
       let label: string
       if (drag.kind === "trim") {
         const found = findClip(project, drag.clipId)
-        if (found === null || drag.frame === edgeFrame(found.clip, drag.edge)) return false
+        if (found !== null && drag.frame === edgeFrame(found.clip, drag.edge)) return false
         command = {
           type: "trim-clip",
           at: now(),
@@ -190,12 +196,28 @@ export function createDragController({
         label = moveLabel(drag.clipIds.length)
       }
 
-      const before = state().past.length
+      // The preview was judged against the Project as it was when the pointer last moved. If that
+      // Project changed since (an import that landed mid-drag), the reducer is the judge: asked
+      // first, on its own, a refusal opens no transaction and is told like any other (R-12).
+      try {
+        applyCommand(project, command)
+      } catch (error) {
+        if (!(error instanceof CommandError)) throw error
+        reportRefusal(store, error.reason, error.message)
+        return false
+      }
       const run = state().run
-      state().transact(label, () => {
-        run(command)
-      })
-      return state().past.length > before
+      try {
+        state().transact(label, () => {
+          run(command)
+        })
+      } catch (error) {
+        if (!(error instanceof CommandError)) throw error
+        reportRefusal(store, error.reason, error.message)
+        return false
+      }
+      // Compared by identity, not by history length: at the 200-step cap the length stays put.
+      return state().project !== project
     },
 
     cancel() {

@@ -33,7 +33,7 @@ import {
   type Command,
 } from "@cutroom/model"
 
-import { explainRefusal } from "@/ui/failure-wording"
+import { explainRefusal, isActionableRefusal } from "@/ui/failure-wording"
 
 import type { EditorStore } from "./index"
 
@@ -64,6 +64,21 @@ export interface EditActions {
   dismissRefusal(): void
 }
 
+/**
+ * Puts a refusal on screen in the User's words. The reducer's `detail` is kept only for a refusal
+ * the User cannot act on, which is a bug to report (screens.md SCR-02).
+ */
+export function reportRefusal(store: EditorStore, reason: string, detail?: string): void {
+  const words = explainRefusal(reason)
+  store
+    .getState()
+    .reportEditRefusal(
+      detail === undefined || isActionableRefusal(reason)
+        ? { reason, ...words }
+        : { reason, ...words, detail }
+    )
+}
+
 export function createEditActions({
   store,
   now,
@@ -72,17 +87,20 @@ export function createEditActions({
 }: EditDependencies): EditActions {
   const state = () => store.getState()
 
-  /** What every Gesture does before it decides anything. */
-  function begin(): void {
+  /**
+   * What every Gesture does before it decides anything. False while a drag is open: its preview is
+   * the one edit in flight, and its release is computed from the Project as the drag found it, so
+   * no other Gesture may change that Project under it (review R-12).
+   */
+  function begin(): boolean {
+    if (state().drag !== null) return false
     stopPlayback()
     state().reportEditRefusal(null)
+    return true
   }
 
   function refuse(reason: string, detail?: string): void {
-    const words = explainRefusal(reason)
-    state().reportEditRefusal(
-      detail === undefined ? { reason, ...words } : { reason, ...words, detail }
-    )
+    reportRefusal(store, reason, detail)
   }
 
   /**
@@ -115,7 +133,7 @@ export function createEditActions({
 
   return {
     split() {
-      begin()
+      if (!begin()) return
       const { project, playheadFrame, selection } = state()
       if (project === null) return
       const targets = splitTargets(project, playheadFrame, [...selection])
@@ -134,7 +152,7 @@ export function createEditActions({
     },
 
     deleteSelected(ripple) {
-      begin()
+      if (!begin()) return
       const { project, selection } = state()
       if (project === null || selection.length === 0) return
       const applied = apply(ripple ? "Ripple delete" : "Delete", {
@@ -147,7 +165,7 @@ export function createEditActions({
     },
 
     duplicateSelected() {
-      begin()
+      if (!begin()) return
       const { project, selection } = state()
       if (project === null || selection.length === 0) return
       const copies = selection.map((clipId) => ({ clipId, newClipId: newId() }))
@@ -161,7 +179,7 @@ export function createEditActions({
     },
 
     addTrack() {
-      begin()
+      if (!begin()) return
       const project = state().project
       if (project === null) return
       apply("Add Track", {
@@ -172,14 +190,14 @@ export function createEditActions({
     },
 
     removeTrack(trackId) {
-      begin()
+      if (!begin()) return
       if (state().project === null) return
       const applied = apply("Remove Track", { type: "remove-track", at: now(), trackId })
       if (applied) state().setSelection(state().selection)
     },
 
     placeSource(sourceId) {
-      begin()
+      if (!begin()) return
       const project = state().project
       if (project === null) return
       const clipId = newId()

@@ -38,6 +38,9 @@ export function installShortcuts(store: EditorStore, editing: Editing): () => vo
     const command = event.metaKey || event.ctrlKey
     const key = event.key.toLowerCase()
     const state = store.getState()
+    // While a drag is open its preview is the one edit in flight: no key may change the Project or
+    // the Selection under it (review R-12). Escape is the Timeline's, which cancels the drag.
+    if (state.drag !== null) return
     let handled = true
 
     if (command && key === "z" && event.shiftKey) state.redo()
