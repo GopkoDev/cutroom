@@ -1,6 +1,6 @@
 ---
 status: living
-updated_at: "2026-10-23"
+updated_at: "2026-10-24"
 ---
 
 # Roadmap — Cutroom
@@ -22,7 +22,7 @@ The interface target is the Kino prototype, recorded in [`docs/reference/README.
 | # | Step | Source | Size | Status |
 |---|---|---|:---:|---|
 | 1 | Import, play, export: the user's own file becomes a Clip they can scrub, play in sync and export as an MP4 → [import-play-export](./features/import-play-export/spec.md) | `docs/features/import-play-export/spec.md` §1. Context | L | shipped |
-| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second video Track and every Clip's sound mixed → [editing](./features/editing/spec.md) | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | building |
+| 2 | Editing: several Clips on a Track, trim from either end, split, move and reorder, duplicate and delete with and without closing the gap, multi-select, undo/redo in the interface, a second video Track and every Clip's sound mixed → [editing](./features/editing/spec.md) | `docs/future.md` §The next slice: editing · `docs/reference/README.md` §Timeline editing | L | shipped |
 | 3 | Images as Sources → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Images as Sources | fog | idea |
 | 4 | Transitions → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Transitions · `docs/reference/README.md` §Clip speed and other Clip commands | fog | idea |
 | 5 | Effects and colour grading → see [Not yet specified](#not-yet-specified) | `docs/future.md` §Effects and colour grading · `docs/reference/README.md` §Inspector: effects and colour | fog | idea |
@@ -143,4 +143,5 @@ Steps 3–11 and 17–22 are `fog` and enter no wave until a recon pass sizes th
 
 | Step | Shipped | Link |
 |---|---|---|
+| 2 · Editing | 2026-10-24, on `feat/editing` ([PR #3](https://github.com/GopkoDev/cutroom/pull/3), open; merging is the owner's call) | [changelog](./features/editing/_ship/changelog.md) · [review](./features/editing/_review/review-2026-10-24.md). Open before merge: D1 (VLC and QuickTime Player at the reference machine), R-03 (AC-23's export peak ceiling), the reference-machine re-run of the performance budgets. Marked shipped by the agent on the owner's delegation, 2026-10-24 |
 | 1 · Import, play, export | `7f5efea`–`a49c7f8` on `main` (date omitted by owner instruction; see `git log`) | No PR (committed to `main`). Record: [docs/features/import-play-export/](./features/import-play-export/spec.md). SC-006 still open (D1) |
