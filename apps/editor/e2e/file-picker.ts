@@ -77,6 +77,7 @@ export const FIXTURES_DIR = path.resolve(
 export type Fixture =
   | "sync-1080p30.mp4"
   | "sync-1080p2997.mp4"
+  | "loud-1080p30.mp4"
   | "sync-1080p30-10min.mp4"
   | "silent-720p24.mp4"
   | "long-1080p30-70min.mp4"

@@ -9,8 +9,8 @@ files_hint: ["apps/editor/e2e/export-fidelity.spec.ts", "apps/editor/e2e/editing
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T019 — Prove the edited Export matches the Preview at every Edit point, with both sounds mixed
 

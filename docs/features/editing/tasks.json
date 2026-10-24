@@ -441,7 +441,7 @@
         "scripts/make-fixtures.ts"
       ],
       "file": "docs/features/editing/tasks/T019-edited-export-fidelity-and-two-track-sound.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T020",
