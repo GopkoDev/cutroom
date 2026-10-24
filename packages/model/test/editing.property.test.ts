@@ -393,6 +393,23 @@ describe("commands built from a rule are never refused", () => {
       reparse(duplicated)
       expect(allClips(duplicated)).toHaveLength(clips.length + ids.length)
 
+      // ...and the rule is not stricter than the command: when the reducer accepts the block
+      // directly after the Selection, that is where duplicateDelta puts it (AC-12, review R-01).
+      const picked = allClips(project).filter((c) => ids.includes(c.id))
+      const adjacent =
+        Math.max(...picked.map((c) => c.startFrame + c.durationFrames)) -
+        Math.min(...picked.map((c) => c.startFrame))
+      const adjacentAccepted =
+        reasonOf(() =>
+          applyCommand(project, {
+            type: "duplicate-clips",
+            at: AT,
+            delta: adjacent,
+            copies: ids.map((clipId) => ({ clipId, newClipId: `${clipId}-copy` })),
+          })
+        ) === null
+      if (adjacentAccepted) expect(delta).toBe(adjacent)
+
       const frame = g.int(0, project.timeline.durationFrames)
       const targets = splitTargets(project, frame, ids)
       if (targets.kind === "cut") {

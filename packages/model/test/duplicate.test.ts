@@ -152,6 +152,27 @@ describe("duplicateDelta", () => {
     expect(duplicateDelta(base(), ["x", "y"])).toBe(110)
   })
 
+  it("AC-12: each copy needs room on its own Track only, not on the other spanned Tracks", () => {
+    // Track 1: a [0,10) alone. Track 2: b [0,5), z [16,20). Selecting a and b: start 0, end 10,
+    // delta 10 puts a' on [10,20) of Track 1 (empty there) and b' on [10,15) of Track 2 (before
+    // z). Neither copy touches a Clip on its own Track, so the block goes directly after the
+    // Selection - a Clip on Track 2 at [16,20) says nothing about room on Track 1 (review R-01).
+    const p = base()
+    p.timeline.tracks[0]!.clips = [clip("a", 0, 10)]
+    p.timeline.tracks[1]!.clips = [clip("b", 0, 5), clip("z", 16, 4)]
+    p.timeline.durationFrames = 20
+    expect(duplicateDelta(p, ["a", "b"])).toBe(10)
+    const { project } = applyCommand(
+      p,
+      dup(duplicateDelta(p, ["a", "b"]), [
+        ["a", "a2"],
+        ["b", "b2"],
+      ])
+    )
+    expect(findClip(project, "a2").startFrame).toBe(10)
+    expect(findClip(project, "b2").startFrame).toBe(10)
+  })
+
   it("a block on Track 2 with room goes directly after the Selection", () => {
     // y, w: start 60, end 110, delta 50; copies [110,130) and [140,160).
     expect(duplicateDelta(base(), ["y", "w"])).toBe(50)

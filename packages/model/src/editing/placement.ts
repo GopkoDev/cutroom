@@ -64,32 +64,32 @@ export function checkMove(
  * How many Frames after the originals does a Duplicate of `clipIds` put its copies (AC-12, AC-13)?
  * The block goes directly after the Selection: the Selection starts at its earliest Clip and ends at
  * its latest Clip end, and the offset is the difference. If a copy at that offset would touch an
- * existing Clip on its Track, the block goes after the last Clip on every Track the Selection spans
- * instead. Pure and total: an unknown id is left out, and an empty Selection gives 0.
+ * existing Clip on its own Track, the block goes after the last Clip on every Track the Selection
+ * spans instead. Pure and total: an unknown id is left out, and an empty Selection gives 0.
  */
 export function duplicateDelta(project: Project, clipIds: readonly string[]): number {
   const named = new Set(clipIds)
   const spanned: Track[] = []
-  const selected: Clip[] = []
+  const selected: { clip: Clip; track: Track }[] = []
   for (const track of project.timeline.tracks as readonly Track[]) {
     const chosen = track.clips.filter((clip) => named.has(clip.id))
     if (chosen.length === 0) continue
     spanned.push(track)
-    selected.push(...chosen)
+    for (const clip of chosen) selected.push({ clip, track })
   }
   if (selected.length === 0) return 0
 
-  const start = Math.min(...selected.map((clip) => clip.startFrame))
-  const end = Math.max(...selected.map((clip) => clip.startFrame + clip.durationFrames))
+  const start = Math.min(...selected.map(({ clip }) => clip.startFrame))
+  const end = Math.max(...selected.map(({ clip }) => clip.startFrame + clip.durationFrames))
   const adjacent = end - start
 
-  const fits = selected.every((clip) => {
+  // Each copy lands on its original's Track, so only that Track's Clips can be in its way — the
+  // same check duplicate-clips makes.
+  const fits = selected.every(({ clip, track }) => {
     const from = clip.startFrame + adjacent
     const to = from + clip.durationFrames
-    return spanned.every((track) =>
-      track.clips.every(
-        (other) => !(from < other.startFrame + other.durationFrames && other.startFrame < to)
-      )
+    return track.clips.every(
+      (other) => !(from < other.startFrame + other.durationFrames && other.startFrame < to)
     )
   })
   if (fits) return adjacent
