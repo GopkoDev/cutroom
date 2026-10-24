@@ -610,6 +610,9 @@ function deleteClips(project: Project, command: DeleteClipsCommand): CommandResu
   }
   return write(project, (draft) => {
     for (const track of draft.timeline.tracks) {
+      // A Track holding none of the named Clips is left alone: assigning it a filtered copy would
+      // give it a new identity (re-rendering its row, ADR 0021) and a patch in the undo entry.
+      if (!track.clips.some((clip) => named.has(clip.id))) continue
       // Removing keeps the order, and moving every later Clip back by what was removed before it
       // cannot make it overlap its predecessor, so the Track stays ordered and non-overlapping.
       track.clips = track.clips.filter((clip) => !named.has(clip.id))

@@ -199,6 +199,18 @@ describe("delete-clips", () => {
     expectValid(project)
   })
 
+  it("a Track holding none of the deleted Clips is left as it was, not rewritten (review R-15)", () => {
+    // ADR 0021: a TrackRow re-renders only when its own Track changes, and an undo entry holds
+    // only what changed, so the untouched Track must keep its identity and get no patch.
+    for (const ripple of [false, true]) {
+      const p = base()
+      const result = applyCommand(p, del(["b"], ripple))
+      expect(result.project.timeline.tracks[1]).toBe(p.timeline.tracks[1])
+      const touched = result.patches.map((patch) => patch.path.slice(0, 3).join("."))
+      expect(touched.filter((path) => path.startsWith("timeline.tracks.1"))).toEqual([])
+    }
+  })
+
   it("AC-11: a Ripple delete of B moves C and what follows back by B's length, one undo restores", () => {
     const p = base()
     const result = applyCommand(p, del(["b"], true))
