@@ -169,4 +169,7 @@ re-runs it there.
 - **Pre-merge on the feature branch:** the full e2e-through-UI and integration suite
   (`pnpm test:e2e`), which is this feature's implement gate.
 - **Pre-release, on the reference machine:** the long measurements, meaning the 2-minute
-  Edit-point Playback, the 60 s two-Track run, and any spec tagged slow (`pnpm test:e2e:slow`).
+  Edit-point Playback, the 60 s two-Track run, the drag, Preview-after-edit and undo timing
+  budgets, and any spec tagged slow (`pnpm test:e2e:slow`). The timing budgets moved here from the
+  every-PR e2e run because they fail with the load of a shared machine (review R-18, decided by
+  the agent on the owner's delegation, 2026-10-24).

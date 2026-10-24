@@ -44,8 +44,15 @@ import {
 //
 // ## The evidence file
 //
-// Each test records its numbers in `_evidence/performance.json` (merged, so the regular and the
-// `@slow` runs add to each other) and the after-all hook renders `_evidence/performance.md`.
+// Each test records its numbers in `_evidence/performance.json` (merged, so runs add to each
+// other) and the after-all hook renders `_evidence/performance.md`.
+//
+// ## Why every test here is `@slow`
+//
+// They are timing budgets against one machine, and the machine this suite shares misses a
+// 16.7 ms bar whenever something else loads it (the evidence's history). In `pnpm test:e2e`, the
+// gate every task runs, that would make the gate depend on the load. So they run in
+// `pnpm test:e2e:slow` and on the reference machine (test-plan.md, review R-18).
 
 test.describe.configure({ timeout: 180_000 })
 
@@ -555,119 +562,125 @@ async function measuredDrag(
 }
 
 for (const kind of ["move", "trim"] as const) {
-  test(`drag feedback: a ${kind} drag of ${DRAG_MOVES} pointer moves on the heavy Project`, async ({
-    page,
-  }) => {
-    await describeMachine(page)
-    await heavyProject(page)
-    const { times, long } = await measuredDrag(page, kind, kind === "move" ? "l47" : "u47")
-    const p95 = percentile(times, 95)
-    const longOver = long.filter((d) => d > LONG_TASK_MS)
-    const pass = p95 <= DRAG_P95_MS && longOver.length === 0
-    record(`drag-${kind}`, {
-      title: `Drag feedback — ${kind} drag`,
-      target: `p95 per pointer move ≤ ${DRAG_P95_MS} ms; no long task (> ${LONG_TASK_MS} ms) during the drag`,
-      pass,
-      numbers: {
-        ...stats(times),
-        "first move": ms(times[0]!),
-        "pointer moves over 16.7 ms": times.filter((t) => t > DRAG_P95_MS).length,
-        "long tasks": long.length ? long.map(ms).join(", ") : "none",
-      },
-      notes:
-        "Pointermove (event timeStamp) → first animation frame at which the dragged Clip's " +
-        (kind === "move" ? "ghost start Frame" : "live edge") +
-        " shows the Frame that pointer position means. 100 Clips on two Tracks, 2560×1200 window.",
-    })
-    expect.soft(p95, "p95 per pointer move").toBeLessThanOrEqual(DRAG_P95_MS)
-    expect.soft(longOver, "long tasks during the drag").toEqual([])
-  })
+  test(
+    `drag feedback: a ${kind} drag of ${DRAG_MOVES} pointer moves on the heavy Project`,
+    { tag: "@slow" },
+    async ({ page }) => {
+      await describeMachine(page)
+      await heavyProject(page)
+      const { times, long } = await measuredDrag(page, kind, kind === "move" ? "l47" : "u47")
+      const p95 = percentile(times, 95)
+      const longOver = long.filter((d) => d > LONG_TASK_MS)
+      const pass = p95 <= DRAG_P95_MS && longOver.length === 0
+      record(`drag-${kind}`, {
+        title: `Drag feedback — ${kind} drag`,
+        target: `p95 per pointer move ≤ ${DRAG_P95_MS} ms; no long task (> ${LONG_TASK_MS} ms) during the drag`,
+        pass,
+        numbers: {
+          ...stats(times),
+          "first move": ms(times[0]!),
+          "pointer moves over 16.7 ms": times.filter((t) => t > DRAG_P95_MS).length,
+          "long tasks": long.length ? long.map(ms).join(", ") : "none",
+        },
+        notes:
+          "Pointermove (event timeStamp) → first animation frame at which the dragged Clip's " +
+          (kind === "move" ? "ghost start Frame" : "live edge") +
+          " shows the Frame that pointer position means. 100 Clips on two Tracks, 2560×1200 window.",
+      })
+      expect.soft(p95, "p95 per pointer move").toBeLessThanOrEqual(DRAG_P95_MS)
+      expect.soft(longOver, "long tasks during the drag").toEqual([])
+    }
+  )
 }
 
 // ---------------------------------------------------------------- Preview after an edit
 
-test("Preview after an edit: 20 Gestures on the heavy Project", async ({ page }) => {
-  await describeMachine(page)
-  await heavyProject(page)
-  const times: number[] = []
-  const kinds: string[] = []
-  const scale = await pxPerFrame(page)
+test(
+  "Preview after an edit: 20 Gestures on the heavy Project",
+  { tag: "@slow" },
+  async ({ page }) => {
+    await describeMachine(page)
+    await heavyProject(page)
+    const times: number[] = []
+    const kinds: string[] = []
+    const scale = await pxPerFrame(page)
 
-  const measure = async (
-    playhead: number,
-    on: "pointerup" | "keydown",
-    act: () => Promise<void>
-  ) => {
-    await parkAt(page, playhead)
-    const before = await revision(page)
-    await arm(page, on, { kind: "preview", above: before })
-    await act()
-    times.push(await answer(page, `Gesture ${times.length + 1}`))
-  }
+    const measure = async (
+      playhead: number,
+      on: "pointerup" | "keydown",
+      act: () => Promise<void>
+    ) => {
+      await parkAt(page, playhead)
+      const before = await revision(page)
+      await arm(page, on, { kind: "preview", above: before })
+      await act()
+      times.push(await answer(page, `Gesture ${times.length + 1}`))
+    }
 
-  // 8 moves into the free stretch, each Clip to its own slot.
-  for (let k = 0; k < 8; k++) {
-    const id = `l${REGULAR - 1 - k}`
-    kinds.push("move")
-    const delta = SLOT(k) - (await startOf(page, id))
-    await measure(SLOT(k) + 5, "pointerup", async () => {
-      const from = await centerOf(clipById(page, id))
-      await page.mouse.move(from.x, from.y)
-      await page.mouse.down()
-      await page.mouse.move(from.x + delta * scale, from.y, { steps: 4 })
-      await page.mouse.up()
+    // 8 moves into the free stretch, each Clip to its own slot.
+    for (let k = 0; k < 8; k++) {
+      const id = `l${REGULAR - 1 - k}`
+      kinds.push("move")
+      const delta = SLOT(k) - (await startOf(page, id))
+      await measure(SLOT(k) + 5, "pointerup", async () => {
+        const from = await centerOf(clipById(page, id))
+        await page.mouse.move(from.x, from.y)
+        await page.mouse.down()
+        await page.mouse.move(from.x + delta * scale, from.y, { steps: 4 })
+        await page.mouse.up()
+      })
+    }
+    // 6 tail/head Trims on the upper Track, each keeping the Playhead inside the Clip.
+    for (let k = 0; k < 6; k++) {
+      const id = `u${REGULAR - 1 - k}`
+      const edge = k % 2 === 0 ? "tail" : "head"
+      kinds.push(`trim ${edge}`)
+      const start = await startOf(page, id)
+      await measure(start + 8, "pointerup", async () => {
+        const from = await centerOf(clipById(page, id).getByTestId(`clip-${edge}-handle`))
+        await page.mouse.move(from.x, from.y)
+        await page.mouse.down()
+        await page.mouse.move(from.x + (edge === "tail" ? -5 : 4) * scale, from.y, { steps: 4 })
+        await page.mouse.up()
+      })
+    }
+    // 6 splits by key on the lower Track's first Clips.
+    for (let k = 0; k < 6; k++) {
+      const id = `l${k}`
+      kinds.push("split")
+      const start = await startOf(page, id)
+      await clipById(page, id).click(WAIT)
+      await measure(start + 9, "keydown", async () => press(page, "s"))
+      await expect(
+        page.locator(`[data-testid=timeline-clip][data-start-frame="${start + 9}"]`)
+      ).toHaveCount(1, WAIT)
+    }
+
+    expect(times).toHaveLength(20)
+    const p95 = percentile(times, 95)
+    const byKind = (k: string) => times.filter((_, i) => kinds[i]!.startsWith(k))
+    record("preview-after-edit", {
+      title: "Preview after an edit — 20 Gestures",
+      target: `p95 from release / key press to the edited Frame in the Preview ≤ ${PREVIEW_P95_MS} ms`,
+      pass: p95 <= PREVIEW_P95_MS,
+      numbers: {
+        ...stats(times),
+        "moves p95 (8)": ms(percentile(byKind("move"), 95)),
+        "trims p95 (6)": ms(percentile(byKind("trim"), 95)),
+        "splits p95 (6)": ms(percentile(byKind("split"), 95)),
+        "all samples": times.map((t) => t.toFixed(0)).join(" "),
+      },
+      notes:
+        "Release (pointerup) or key press (S) → the `preview-shown` text naming the Playhead's Frame " +
+        "of a Scene newer than before the edit. Keyframe-every-2 s fixture; long-GOP not measured here.",
     })
+    expect.soft(p95, "p95 Gesture → Preview").toBeLessThanOrEqual(PREVIEW_P95_MS)
   }
-  // 6 tail/head Trims on the upper Track, each keeping the Playhead inside the Clip.
-  for (let k = 0; k < 6; k++) {
-    const id = `u${REGULAR - 1 - k}`
-    const edge = k % 2 === 0 ? "tail" : "head"
-    kinds.push(`trim ${edge}`)
-    const start = await startOf(page, id)
-    await measure(start + 8, "pointerup", async () => {
-      const from = await centerOf(clipById(page, id).getByTestId(`clip-${edge}-handle`))
-      await page.mouse.move(from.x, from.y)
-      await page.mouse.down()
-      await page.mouse.move(from.x + (edge === "tail" ? -5 : 4) * scale, from.y, { steps: 4 })
-      await page.mouse.up()
-    })
-  }
-  // 6 splits by key on the lower Track's first Clips.
-  for (let k = 0; k < 6; k++) {
-    const id = `l${k}`
-    kinds.push("split")
-    const start = await startOf(page, id)
-    await clipById(page, id).click(WAIT)
-    await measure(start + 9, "keydown", async () => press(page, "s"))
-    await expect(
-      page.locator(`[data-testid=timeline-clip][data-start-frame="${start + 9}"]`)
-    ).toHaveCount(1, WAIT)
-  }
-
-  expect(times).toHaveLength(20)
-  const p95 = percentile(times, 95)
-  const byKind = (k: string) => times.filter((_, i) => kinds[i]!.startsWith(k))
-  record("preview-after-edit", {
-    title: "Preview after an edit — 20 Gestures",
-    target: `p95 from release / key press to the edited Frame in the Preview ≤ ${PREVIEW_P95_MS} ms`,
-    pass: p95 <= PREVIEW_P95_MS,
-    numbers: {
-      ...stats(times),
-      "moves p95 (8)": ms(percentile(byKind("move"), 95)),
-      "trims p95 (6)": ms(percentile(byKind("trim"), 95)),
-      "splits p95 (6)": ms(percentile(byKind("split"), 95)),
-      "all samples": times.map((t) => t.toFixed(0)).join(" "),
-    },
-    notes:
-      "Release (pointerup) or key press (S) → the `preview-shown` text naming the Playhead's Frame " +
-      "of a Scene newer than before the edit. Keyframe-every-2 s fixture; long-GOP not measured here.",
-  })
-  expect.soft(p95, "p95 Gesture → Preview").toBeLessThanOrEqual(PREVIEW_P95_MS)
-})
+)
 
 // ---------------------------------------------------------------- undo and redo
 
-test("undo and redo: 20 of each on the heavy Project", async ({ page }) => {
+test("undo and redo: 20 of each on the heavy Project", { tag: "@slow" }, async ({ page }) => {
   await describeMachine(page)
   await heavyProject(page)
 
@@ -892,16 +905,21 @@ test(
     const skipped = run.rendered.reduce((n, r) => n + r.skipped, 0)
     const ratio = skipped / total
     const underruns = sound.runs.length - 1
+    // AC-23 in Playback: both Clips' sound is scheduled through the whole overlap, not one of
+    // them — every instant of the 60 s is given sound twice, once per Track (review R-04).
+    const twiceSeconds = sound.overlaps.reduce((sum, o) => sum + (o.until - o.from), 0)
+    const bothHeard = twiceSeconds >= total / FPS - 0.1
     record("two-tracks-full-rate", {
       title: "Two Tracks at full rate — 60 s",
-      target: "skipped Frames ≤ 1%; zero audio underruns",
-      pass: ratio <= SKIPPED_MAX && underruns === 0 && sound.lateNodes === 0,
+      target: "skipped Frames ≤ 1%; zero audio underruns; both Tracks' sound heard (AC-23)",
+      pass: ratio <= SKIPPED_MAX && underruns === 0 && sound.lateNodes === 0 && bothHeard,
       numbers: {
         "Timeline Frames": total,
         "Frames shown": shown.length,
         "skipped Frames": `${skipped} (${(100 * ratio).toFixed(2)} %)`,
         "audio underruns (gaps between node runs)": underruns,
         "late nodes": sound.lateNodes,
+        "seconds with both Tracks' sound scheduled": `${twiceSeconds.toFixed(3)} of ${(total / FPS).toFixed(0)}`,
         "worst A/V drift": `${Math.max(...shown.map((s) => s.drift)).toFixed(3)} Frames`,
         "frames-dropped": run.dropped.reduce((n, d) => n + d.count, 0),
       },
@@ -912,5 +930,8 @@ test(
     expect.soft(ratio, "skipped share of all Frames").toBeLessThanOrEqual(SKIPPED_MAX)
     expect.soft(underruns, "audio underruns").toBe(0)
     expect.soft(sound.lateNodes, "nodes started too late").toBe(0)
+    expect
+      .soft(twiceSeconds, "seconds of the overlap given both Tracks' sound")
+      .toBeGreaterThanOrEqual(total / FPS - 0.1)
   }
 )
