@@ -92,6 +92,14 @@ continuous render would have had, and the seams stay sample-exact and inaudible.
 
 - Each export segment renders a little more than its share (the pre-roll), which is a few percent
   more mixing work for the Export.
+- A ratio-20 compressor is not a brickwall. On a transient it lets about 1% above full scale
+  through, and AAC overshoots a signal held at full scale when it is decoded. Two loud Clips
+  summed to 1.336 measured 1.069 in the decoded export, with no flat-topped (clipped) run. AC-23's
+  "no distortion" is checked as exactly that: no clipped run, and the peak held within 1.1. A
+  threshold below 0 dBFS was tried and rejected. Web Audio's compressor then applies makeup gain
+  (about +0.57 dB at −1 dBFS), which would change a single Clip's level, against spec §1. And the
+  peak still measured 1.016. (Agent on the owner's delegation, 2026-10-24, during
+  `/sdd:implement`; for the owner's review.)
 
 **Neutral**
 - Per-Clip volume, fades and pan (roadmap step 7) go before the master bus, on each Clip's gain
