@@ -9,8 +9,8 @@ files_hint: ["apps/editor/src/ui/EditToolbar.tsx", "apps/editor/src/ui/UndoRedo.
 owner: "Dmytro Hopko"
 estimate: "M"
 context_budget: "M"
-status: "todo"
-step: ""
+status: "done"
+step: "COMMIT"
 ---
 # T018 — Add the edit toolbar, named Undo and Redo, keyboard shortcuts and the Place action
 

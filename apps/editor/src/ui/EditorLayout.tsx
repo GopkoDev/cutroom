@@ -83,6 +83,7 @@ import { pickSaveFile } from "./file-picker"
 import { RelinkPrompt } from "./RelinkPrompt"
 import { SourcesPanel } from "./SourcesPanel"
 import { EditingContext, type Editing } from "./editing-context"
+import { installShortcuts } from "./shortcuts"
 import { Timeline } from "./timeline/Timeline"
 import { TopBar } from "./TopBar"
 
@@ -318,6 +319,9 @@ export function EditorLayout() {
       drag: createDragController(dependencies),
     }
   }, [transport])
+
+  // The editing keys, wherever focus is in the editor (`shortcuts.ts`).
+  useEffect(() => installShortcuts(useEditorStore, editing), [editing])
 
   // The frame size the raster is created at. Fixed at the first render — a lazy initial state, not
   // a ref, because it *is* rendered — because the element's width and height cannot be changed

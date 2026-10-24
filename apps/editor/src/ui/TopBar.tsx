@@ -28,10 +28,12 @@ import type { Project } from "@cutroom/model"
 
 import type { Transport } from "@/audio/transport"
 import { Button } from "@/components/ui/button"
-import { canRedo, canUndo, nextRedoLabel, nextUndoLabel, useEditorStore } from "@/store"
+import { useEditorStore } from "@/store"
 import { isExportBusy, type ExportController, type ExportState } from "@/store/export"
 
+import { typesText } from "./shortcuts"
 import { formatTimecode } from "./timecode"
+import { UndoRedo } from "./UndoRedo"
 
 /** Same width as a real timecode, so the bar does not shift when the first import lands. */
 const NO_TIMECODE = "--:--:--:--"
@@ -55,17 +57,6 @@ function Timecode() {
     >
       {timecodeAt(project, playheadFrame)}
     </output>
-  )
-}
-
-/** Whether Space pressed here is text being typed, which the transport must leave alone. */
-function typesText(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true
-  if (!(target instanceof HTMLInputElement)) return false
-  return !["button", "checkbox", "radio", "range", "reset", "submit", "file", "color"].includes(
-    target.type
   )
 }
 
@@ -96,12 +87,6 @@ export function TopBar({
   const project = useEditorStore((state) => state.project)
   const exporting = useExporting(exporter)
   const playing = useEditorStore((state) => state.transport === "playing")
-  const undoable = useEditorStore(canUndo)
-  const redoable = useEditorStore(canRedo)
-  const undoLabel = useEditorStore(nextUndoLabel)
-  const redoLabel = useEditorStore(nextRedoLabel)
-  const undo = useEditorStore((state) => state.undo)
-  const redo = useEditorStore((state) => state.redo)
   const closeProject = useEditorStore((state) => state.closeProject)
   // Leaving the editor while the Project cannot be saved would throw the edits away (T093).
   const unsaved = useEditorStore((state) => state.saveFailure !== null)
@@ -179,28 +164,7 @@ export function TopBar({
         >
           Export…
         </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="undo"
-          disabled={!undoable}
-          onClick={() => {
-            undo()
-          }}
-        >
-          {undoLabel === null ? "Undo" : `Undo ${undoLabel}`}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="redo"
-          disabled={!redoable}
-          onClick={() => {
-            redo()
-          }}
-        >
-          {redoLabel === null ? "Redo" : `Redo ${redoLabel}`}
-        </Button>
+        <UndoRedo />
       </div>
     </header>
   )

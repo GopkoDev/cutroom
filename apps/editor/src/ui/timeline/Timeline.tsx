@@ -61,6 +61,7 @@ import { useShallow } from "zustand/react/shallow"
 import { cn } from "@/lib/utils"
 import { useEditorStore } from "@/store"
 
+import { EditToolbar } from "../EditToolbar"
 import { useEditing } from "../editing-context"
 import { Notice } from "../Notice"
 import {
@@ -402,6 +403,7 @@ export function Timeline() {
             ? "Empty — no Clips yet."
             : `${durationFrames} Frames across ${trackIds.length} Track(s).`}
         </p>
+        <EditToolbar />
       </div>
 
       <EditRefusalNotice />

@@ -418,7 +418,7 @@
         "apps/editor/e2e/editing-commands.spec.ts"
       ],
       "file": "docs/features/editing/tasks/T018-edit-toolbar-undo-redo-shortcuts-place.md",
-      "status": "todo"
+      "status": "done"
     },
     {
       "id": "T019",
