@@ -52,7 +52,7 @@ import type { Frame, Scene } from "@cutroom/model"
 
 import type { SceneRenderer } from "../compose/renderer"
 import { previewSinks } from "../sources/canvas-sink"
-import { openStreams, renderByStreaming } from "./stream"
+import { openStreams, PREPARE_AHEAD_FRAMES, renderByStreaming } from "./stream"
 
 /**
  * How long a stopped Preview keeps its decoders parked after its last job (header). Long enough to
@@ -137,7 +137,7 @@ export function createScheduler(renderer: SceneRenderer, report: RenderReport): 
         report.rendered(frame, revision, 0)
         return
       }
-      await renderByStreaming(previewSinks, renderer, scene, frame)
+      await renderByStreaming(previewSinks, renderer, scene, frame, PREPARE_AHEAD_FRAMES)
       shownRevision = revision
       const skipped = lastShown !== null && frame > lastShown ? frame - lastShown - 1 : 0
       // Backwards too: a clock that went back is showing an earlier Frame now, and the next one
